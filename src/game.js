@@ -39,6 +39,18 @@ const FACTORY = { name: '공장', icon: '🏭', cost: 200, income: 1.5, desc: '�
 const LAND_INCOME = 1; // 땅 기본 수입: 초당 0.5 × 땅 등급 (공장 없이도 들어온다 — 영토 자체가 가치)
 const MAX_YIELD = 3;
 const LAND_UPGRADE = { 1: 400, 2: 700 }; // 땅 등급 올리기 비용 (현재 등급 → +1). 등급이 오르면 기본 수입·공장 수입이 오르고 부지가 한 칸 는다
+// 연구 개발. 각 플레이어가 돈으로 산다. unlock 은 1회, 강화는 3레벨까지.
+// 병종 강화는 그 병종의 체력·공격을 레벨당 +20%, 생산성은 모든 공장 수입을 레벨당 +20%.
+const RESEARCH = {
+  tank: { name: '전차 개발', icon: 'tank', cost: [300], desc: '전차를 생산할 수 있게 된다.' },
+  air: { name: '항공기 개발', icon: 'air', cost: [500], req: 'tank', desc: '항공기를 생산할 수 있게 된다. (전차 개발 필요)' },
+  inf: { name: '보병 강화', icon: 'inf', cost: [200, 400, 700], desc: '보병 체력·공격 +20% / 레벨' },
+  tankU: { name: '전차 강화', icon: 'tank', cost: [300, 600, 1000], req: 'tank', desc: '전차 체력·공격 +20% / 레벨' },
+  airU: { name: '항공기 강화', icon: 'air', cost: [400, 800, 1300], req: 'air', desc: '항공기 체력·공격 +20% / 레벨' },
+  prod: { name: '공장 생산성', icon: 'factory', cost: [250, 500, 900], desc: '모든 공장 수입 +20% / 레벨' },
+};
+const RESEARCH_STEP = 0.2;
+const UNIT_RESEARCH = { inf: 'inf', tank: 'tankU', air: 'airU' }; // 병종 → 강화 연구 키
 const MAX_LEVEL = 3;
 // 타워 레벨별 체력·화력 배수 (1→2→3레벨). 증설 비용은 공장과 같은 규칙(건설비 × UPGRADE_MULT^현재 레벨)
 const TOWER_LV_MULT = [1, 1.6, 2.4];
@@ -112,6 +124,7 @@ class Game {
       alive: true,
       diedAt: null,
       capital: -1,
+      rs: { tank: 0, air: 0, inf: 0, tankU: 0, airU: 0, prod: 0 }, // 연구 레벨
     }));
 
     this.buildMap();
@@ -218,11 +231,36 @@ class Game {
   /** 초당 수입 = 땅 기본 수입 + 공장 합계 */
   incomeOf(p) {
     let v = 0;
+    const prod = 1 + RESEARCH_STEP * p.rs.prod;
     for (const t of this.landOf(p.id)) {
       v += LAND_INCOME * t.yield;
-      for (const b of t.b) if (b.k === 'factory') v += FACTORY.income * t.yield * b.lv;
+      for (const b of t.b) if (b.k === 'factory') v += FACTORY.income * t.yield * b.lv * prod;
     }
     return v;
+  }
+
+  /** 병종 강화 배수 — pid 가 null(중립)·'npc'(약탈대) 면 1 */
+  unitMult(pid, u) {
+    const p = pid && pid !== 'npc' ? this.player(pid) : null;
+    return p ? 1 + RESEARCH_STEP * p.rs[UNIT_RESEARCH[u]] : 1;
+  }
+
+  /* ---------------------------------------------------------------- 행동: 연구 */
+
+  research(pid, key) {
+    if (this.ended) return { ok: false, error: '게임이 끝났습니다.' };
+    const p = this.player(pid);
+    if (!p || !p.alive) return { ok: false, error: '탈락한 플레이어입니다.' };
+    const def = RESEARCH[key];
+    if (!def) return { ok: false, error: '없는 연구입니다.' };
+    const lv = p.rs[key];
+    if (lv >= def.cost.length) return { ok: false, error: '이미 최고 단계입니다.' };
+    if (def.req && !p.rs[def.req]) return { ok: false, error: `${RESEARCH[def.req].name} 연구가 먼저 필요합니다.` };
+    const cost = def.cost[lv];
+    if (p.cash < cost) return { ok: false, error: '돈이 부족합니다.' };
+    p.cash -= cost;
+    p.rs[key] = lv + 1;
+    return { ok: true };
   }
 
   /** 초당 병력 유지비 (주둔 + 출정 중인 병력 모두) */
@@ -321,6 +359,7 @@ class Game {
     const { p, t } = r;
     const def = UNIT[unit];
     if (!def) return { ok: false, error: '없는 유닛입니다.' };
+    if ((unit === 'tank' || unit === 'air') && !p.rs[unit]) return { ok: false, error: `${RESEARCH[unit].name} 연구가 필요합니다.` };
     qty = Math.floor(Number(qty) || 0);
     if (qty < 1 || qty > 200) return { ok: false, error: '수량은 1~200 입니다.' };
     if (p.cash < def.cost * qty) return { ok: false, error: '돈이 부족합니다.' };
@@ -465,16 +504,18 @@ class Game {
     // 양쪽 피해를 틱 시작 시점의 구성으로 동시에 계산한다 (선공 없음)
     const dmgD = {};
     const dmgA = {};
+    const attM = (u) => this.unitMult(bt.att, u);
+    const defM = (u) => this.unitMult(t.owner, u);
     for (const a of UNIT_KINDS) {
       if (!(A[a] > 0)) continue;
-      const total = A[a] * UNIT[a].dps * dt;
+      const total = A[a] * UNIT[a].dps * attM(a) * dt;
       for (const c of Object.keys(D)) {
         const m = MULT[a][c] || 0;
         if (m) dmgD[c] = (dmgD[c] || 0) + total * (D[c] / dTotal) * m;
       }
     }
     for (const d of Object.keys(D)) {
-      const dps = UNIT[d] ? UNIT[d].dps : TOWER[d].dps;
+      const dps = UNIT[d] ? UNIT[d].dps * defM(d) : TOWER[d].dps;
       const total = D[d] * dps * dt;
       for (const a of UNIT_KINDS) {
         if (!(A[a] > 0)) continue;
@@ -482,9 +523,9 @@ class Game {
         if (m) dmgA[a] = (dmgA[a] || 0) + total * (A[a] / aTotal) * m;
       }
     }
-    for (const a of UNIT_KINDS) if (dmgA[a]) A[a] = Math.max(0, A[a] - dmgA[a] / UNIT[a].hp);
+    for (const a of UNIT_KINDS) if (dmgA[a]) A[a] = Math.max(0, A[a] - dmgA[a] / (UNIT[a].hp * attM(a)));
     for (const c of Object.keys(dmgD)) {
-      if (UNIT[c]) t.units[c] = Math.max(0, t.units[c] - dmgD[c] / UNIT[c].hp);
+      if (UNIT[c]) t.units[c] = Math.max(0, t.units[c] - dmgD[c] / (UNIT[c].hp * defM(c)));
       else {
         // 타워는 앞에서부터 차례로 맞는다
         let left = dmgD[c];
@@ -689,11 +730,12 @@ class Game {
         land: this.landOf(p.id).length,
         nw: econ.players[i].nw,
         capital: p.capital,
+        rs: p.rs,
       })),
       // 상수는 게임 중 안 바뀌므로 첫 전송 뒤에는 diff 에서 빠진다
-      constants: { UNIT, TOWER, TOWER_LV_MULT, FACTORY, LAND_INCOME, LAND_UPGRADE, MAX_YIELD, MULT, MAX_LEVEL, UPGRADE_MULT, WAVE_SEC, WAVE_WARN, RAID_PER_LAND, DEMOLISH_REFUND, UPKEEP },
+      constants: { UNIT, TOWER, TOWER_LV_MULT, FACTORY, RESEARCH, RESEARCH_STEP, UNIT_RESEARCH, LAND_INCOME, LAND_UPGRADE, MAX_YIELD, MULT, MAX_LEVEL, UPGRADE_MULT, WAVE_SEC, WAVE_WARN, RAID_PER_LAND, DEMOLISH_REFUND, UPKEEP },
     };
   }
 }
 
-module.exports = { Game, UNIT, UNIT_KINDS, TOWER, TOWER_KINDS, FACTORY, MULT, WAVE_SEC, WAVE_WARN, MAX_LEVEL, emptyUnits };
+module.exports = { Game, UNIT, UNIT_KINDS, TOWER, TOWER_KINDS, FACTORY, RESEARCH, MULT, WAVE_SEC, WAVE_WARN, MAX_LEVEL, emptyUnits };

@@ -563,6 +563,7 @@ function setTab(name) {
 
 function renderTab() {
   if (activeTab === 'tile') renderTilePane();
+  else if (activeTab === 'research') renderResearchPane();
   else if (activeTab === 'rank') renderRankPane();
   else if (activeTab === 'help') renderHelpPane();
   else if (activeTab === 'log') renderLogPane();
@@ -584,7 +585,7 @@ function renderTilePane() {
   const t = tiles()[selected];
   const mine = !!p && p.alive && t.owner === ME;
   const bSig = (t.b || []).map((b) => b.k + (b.lv || 1)).join(',');
-  const sig = ['tile', selected, t.owner, bSig, t.slots, t.y, t.bt ? t.bt.att : '', mine, p ? p.alive : 0, g.ended].join('|');
+  const sig = ['tile', selected, t.owner, bSig, t.slots, t.y, t.bt ? t.bt.att : '', mine, p ? p.alive : 0, g.ended, p && p.rs ? Object.values(p.rs).join('') : ''].join('|');
   renderPane('tile', sig, (live) => {
     wrap.innerHTML = '';
 
@@ -760,14 +761,25 @@ function renderTilePane() {
       const cnt = el('span', 'cnt');
       live.push(() => (cnt.textContent = fmt1(unitsOf(tiles()[selected])[k])));
       row.appendChild(cnt);
-      if (mine && !g.ended) {
+      if (mine && !g.ended && (k === 'inf' || (p.rs && p.rs[k]))) {
         for (const q of [1, 5, 10]) {
           const b = el('button', 'small', `+${q}`);
           b.addEventListener('click', () => emit('train', { idx: selected, unit: k, qty: q }));
           live.push(() => (b.disabled = !me() || myCash() < def.cost * q));
           row.appendChild(b);
         }
-        row.appendChild(el('span', 'cost', `💰${def.cost} · ${def.desc}`));
+        const lv = p.rs ? p.rs[C.UNIT_RESEARCH[k]] : 0;
+        row.appendChild(el('span', 'cost', `💰${def.cost} · ${def.desc}${lv ? ` · 강화 Lv${lv} (+${Math.round(lv * C.RESEARCH_STEP * 100)}%)` : ''}`));
+      } else if (mine && !g.ended) {
+        const lock = el('button', 'small', '🔒 연구 필요');
+        lock.addEventListener('click', () => {
+          setTab('research');
+          renderTab();
+        });
+        row.appendChild(lock);
+        row.appendChild(el('span'));
+        row.appendChild(el('span'));
+        row.appendChild(el('span', 'cost', `연구 탭에서 ${C.RESEARCH[k].name}(💰${C.RESEARCH[k].cost[0]})을 하면 생산할 수 있습니다.`));
       } else {
         row.appendChild(el('span', 'dim', def.desc));
         row.appendChild(el('span'));
@@ -946,6 +958,45 @@ function drawBattleAnim() {
   draw(anim.sprites.D, true, '#93c5fd');
 }
 
+/* ------------------------------------------------------------------ 연구 */
+
+function renderResearchPane() {
+  const wrap = $('#tab-research');
+  const g = S.game;
+  const p = me();
+  const sig = ['rs', p ? Object.values(p.rs).join('') : 'x', p ? p.alive : 0, g.ended].join('|');
+  renderPane('research', sig, (live) => {
+    wrap.innerHTML = '';
+    if (!p) {
+      wrap.appendChild(el('p', 'dim', '관전 중에는 연구할 수 없습니다.'));
+      return;
+    }
+    wrap.appendChild(el('p', 'dim', '연구는 즉시 완료되고 내 모든 땅·병력에 적용됩니다. 강화는 3단계까지.'));
+    for (const [key, def] of Object.entries(C.RESEARCH)) {
+      const lv = p.rs[key] || 0;
+      const max = def.cost.length;
+      const done = lv >= max;
+      const locked = def.req && !p.rs[def.req];
+      const card = el('div', 'card');
+      const h = el('h3');
+      const title = el('span', 'inline-ic');
+      title.appendChild(ICONS.el(def.icon, 20));
+      title.appendChild(document.createTextNode(def.name + (max > 1 ? ` Lv${lv}/${max}` : lv ? ' ✓' : '')));
+      h.appendChild(title);
+      if (!done && p.alive && !g.ended) {
+        const cost = def.cost[lv];
+        const btn = el('button', 'small primary', locked ? `🔒 ${C.RESEARCH[def.req].name} 먼저` : `연구 💰${fmt(cost)}`);
+        btn.addEventListener('click', () => emit('research', { key }));
+        live.push(() => (btn.disabled = locked || !me() || myCash() < cost));
+        h.appendChild(btn);
+      } else if (done) h.appendChild(el('span', 'dim', '완료'));
+      card.appendChild(h);
+      card.appendChild(el('div', 'dim', def.desc + (max > 1 ? ` · 비용 ${def.cost.map((c) => fmt(c)).join(' → ')}` : '')));
+      wrap.appendChild(card);
+    }
+  });
+}
+
 /* ------------------------------------------------------------------ 순위 */
 
 function renderRankPane() {
@@ -993,6 +1044,7 @@ function renderHelpPane() {
     add(`<span class="k">상성 한 줄</span><br>${ic('tank')} 전차는 ${ic('inf')} 보병을, ${ic('air')} 항공기는 ${ic('tank')} 전차를 잡습니다. 항공기는 ${ic('aa')} 대공포나 ${ic('air')} 항공기로만 막을 수 있습니다.<br>${ic('mg')} 기관총은 보병, ${ic('cannon')} 포탑은 전차, ${ic('aa')} 대공포는 항공기를 막습니다.`);
     for (const [k, d] of Object.entries(C.UNIT)) add(`<span class="k">${ic(k)} ${d.name}</span> 💰${d.cost} · 체력 ${d.hp} · 공격 ${d.dps}/초<br><span class="dim">${d.desc}</span>`);
     for (const [k, d] of Object.entries(C.TOWER)) add(`<span class="k">${ic(k)} ${d.name}</span> 💰${d.cost} · 체력 ${d.hp} · 공격 ${d.dps}/초<br><span class="dim">${d.desc} 수비할 때만 싸우고, 부지를 한 칸 씁니다. 증설하면 체력·화력이 ×${C.TOWER_LV_MULT[1]}, ×${C.TOWER_LV_MULT[2]}.</span>`);
+    add(`<span class="k">🔬 연구</span> 전차·항공기는 연구해야 뽑을 수 있습니다. 병종 강화는 그 병종의 체력·공격을 레벨당 +${Math.round(C.RESEARCH_STEP * 100)}%, 공장 생산성은 모든 공장 수입을 레벨당 +${Math.round(C.RESEARCH_STEP * 100)}% 올립니다.`);
     add(`<span class="k">${ic('factory')} ${C.FACTORY.name}</span> 💰${C.FACTORY.cost} · 초당 ${C.FACTORY.income}×땅 등급×레벨<br><span class="dim">${C.FACTORY.desc}</span>`);
     add(`<span class="k">🚩 땅</span> 등급(💰 1~3)이 높을수록 기본 수입과 공장 수입이 높고 부지가 많습니다. 돈을 들여 등급을 올릴 수 있습니다 (${C.LAND_UPGRADE[1]} → ${C.LAND_UPGRADE[2]}). 공장이 없어도 초당 ${C.LAND_INCOME}×등급을 법니다. 영토를 넓히는 것만으로 수입이 늘지만, ${C.RAID_PER_LAND}칸마다 습격 지점이 하나씩 늘어납니다.`);
     add(`<span class="k">💸 유지비</span><br><span class="dim">병력은 초당 가격의 ${C.UPKEEP * 100}% 를 유지비로 씁니다 (보병 ${C.UNIT.inf.cost * C.UPKEEP}, 전차 ${C.UNIT.tank.cost * C.UPKEEP}, 항공기 ${C.UNIT.air.cost * C.UPKEEP}). 돈이 바닥나면 병력이 흩어집니다.</span>`);

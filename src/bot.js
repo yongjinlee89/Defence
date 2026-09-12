@@ -33,6 +33,15 @@ function think(game, pid) {
   const land = game.landOf(pid);
   if (!land.length) return false;
 
+  // 0) 연구 — 단계에 맞춰 전차·항공기를 열고, 여유가 있으면 생산성과 강화
+  const stage0 = game.stage();
+  if (!p.rs.tank && stage0 >= 1 && p.cash > 500) game.research(pid, 'tank');
+  else if (!p.rs.air && stage0 >= 3 && p.cash > 800) game.research(pid, 'air');
+  else if (p.cash > 900) {
+    const order = ['prod', 'inf', 'tankU', 'airU', 'prod', 'tankU', 'airU'];
+    for (const k of order) if (game.research(pid, k).ok) break;
+  }
+
   // 1) 건설
   for (const t of land) {
     const free = t.slots - t.b.length;
@@ -75,11 +84,11 @@ function think(game, pid) {
   const stage = game.stage();
   const minPower = 200 + stage * 180;
   if (defensePower(game, weakest) < minPower) {
-    const pick = stage >= 4 && p.cash > 300 ? 'tank' : 'inf';
+    const pick = stage >= 4 && p.rs.tank && p.cash > 300 ? 'tank' : 'inf';
     if (game.train(pid, weakest.idx, pick, pick === 'inf' ? 3 : 1).ok) changed = true;
   } else if (p.cash > 500) {
     const strongest = [...land].sort((a, b) => power(b.units) - power(a.units))[0];
-    const pick = p.cash > 800 && stage >= 3 ? 'air' : p.cash > 400 ? 'tank' : 'inf';
+    const pick = p.cash > 800 && stage >= 3 && p.rs.air ? 'air' : p.cash > 400 && p.rs.tank ? 'tank' : 'inf';
     if (game.train(pid, strongest.idx, pick, pick === 'inf' ? 4 : 1).ok) changed = true;
   }
 

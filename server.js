@@ -187,6 +187,7 @@ io.on('connection', (socket) => {
   /* ------------------------------------------------------------ 게임 행동 */
   socket.on('build', withRoom((room, pid, p) => room.gameAction(pid, (g) => g.build(pid, p.idx, p.kind))));
   socket.on('upgrade', withRoom((room, pid, p) => room.gameAction(pid, (g) => g.upgrade(pid, p.idx, p.slot))));
+  socket.on('research', withRoom((room, pid, p) => room.gameAction(pid, (g) => g.research(pid, p.key))));
   socket.on('upgradeLand', withRoom((room, pid, p) => room.gameAction(pid, (g) => g.upgradeLand(pid, p.idx))));
   socket.on('demolish', withRoom((room, pid, p) => room.gameAction(pid, (g) => g.demolish(pid, p.idx, p.slot))));
   socket.on('train', withRoom((room, pid, p) => room.gameAction(pid, (g) => g.train(pid, p.idx, p.unit, p.qty))));

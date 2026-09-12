@@ -3,7 +3,7 @@
 /* 규칙 엔진 테스트: node test/game.test.js */
 
 const assert = require('assert');
-const { Game, TOWER, FACTORY, WAVE_SEC, WAVE_WARN } = require('../src/game');
+const { Game, TOWER, FACTORY, RESEARCH, WAVE_SEC, WAVE_WARN } = require('../src/game');
 
 const P = [
   { id: 'a', name: '갑' },
@@ -114,9 +114,14 @@ const cap = (g, pid) => g.map.tiles[g.player(pid).capital];
   const g = newGame();
   const p = g.player('a');
   const ca = cap(g, 'a');
+  assert.ok(!g.train('a', ca.idx, 'tank', 1).ok, '전차는 연구 전에 못 뽑는다');
+  assert.ok(!g.research('a', 'air').ok, '항공기는 전차 개발이 먼저');
+  assert.ok(g.research('a', 'tank').ok);
+  assert.strictEqual(p.cash, 500);
+  assert.ok(!g.research('a', 'tank').ok, '개발은 한 번');
   assert.ok(g.train('a', ca.idx, 'tank', 1).ok);
   assert.strictEqual(ca.units.tank, 1);
-  assert.strictEqual(p.cash, 800 - 100);
+  assert.strictEqual(p.cash, 400);
   assert.ok(!g.train('a', ca.idx, 'air', 10).ok, '돈 부족');
   assert.ok(g.train('a', ca.idx, 'inf', 5).ok);
   assert.strictEqual(ca.units.inf, 13);
@@ -148,6 +153,7 @@ const cap = (g, pid) => g.map.tiles[g.player(pid).capital];
   const target = g.neighbors(ca).find((t) => !t.owner);
   assert.ok(!g.attack('a', ca.idx, ca.idx, 'all').ok, '내 땅 공격 불가');
   p.cash = 5000;
+  assert.ok(g.research('a', 'tank').ok);
   assert.ok(g.train('a', ca.idx, 'tank', 5).ok);
   assert.ok(g.train('a', ca.idx, 'inf', 20).ok);
   assert.ok(g.attack('a', ca.idx, target.idx, { inf: 20, tank: 5 }).ok);
@@ -191,6 +197,41 @@ const cap = (g, pid) => g.map.tiles[g.player(pid).capital];
   assert.notStrictEqual(setup([], { air: 3 }, { inf: 12 }).owner, 'a', '보병 12명도 항공기 3대를 못 잡는다');
   assert.strictEqual(setup([], { inf: 10 }, { tank: 3 }).owner, 'a', '전차는 보병을 밀어낸다');
   console.log('✓ 상성 (전차 > 보병, 항공기 > 전차, 항공기는 대공포·항공기로만, 타워는 담당 하나씩)');
+}
+
+/* ---------------- 연구 강화 ---------------- */
+{
+  // 같은 보병 12 vs 12 — 강화 3단계면 강화한 쪽이 이긴다
+  const run = (lvA) => {
+    const g = newGame();
+    const p = g.player('a');
+    p.cash = 5000;
+    for (let i = 0; i < lvA; i++) assert.ok(g.research('a', 'inf').ok);
+    const ca = cap(g, 'a');
+    const t = g.neighbors(ca).find((x) => !x.owner);
+    t.owner = 'b';
+    t.b = [];
+    t.units = { inf: 12, tank: 0, air: 0 };
+    ca.units.inf = 12;
+    g.attack('a', ca.idx, t.idx, { inf: 12 });
+    tick(g, 120);
+    return t.owner;
+  };
+  assert.notStrictEqual(run(0), 'a', '같은 수면 수비가 이긴다(선공 없음, 공격자가 먼저 소모)');
+  assert.strictEqual(run(3), 'a', '보병 강화 3단계(+60%)면 공격이 이긴다');
+  // 생산성
+  const g = newGame();
+  const p = g.player('a');
+  p.cash = 5000;
+  const inc0 = g.incomeOf(p);
+  assert.ok(g.research('a', 'prod').ok);
+  assert.ok(Math.abs(g.incomeOf(p) - (inc0 + 0.2 * 4.5)) < 1e-9, '공장 수입만 +20%');
+  assert.ok(g.research('a', 'prod').ok && g.research('a', 'prod').ok);
+  assert.ok(!g.research('a', 'prod').ok, '3단계가 최대');
+  assert.ok(!g.research('a', 'zzz').ok);
+  assert.strictEqual(g.publicState().players[0].rs.prod, 3);
+  assert.ok(RESEARCH.airU.req === 'air');
+  console.log('✓ 연구 (개발 잠금, 강화, 생산성)');
 }
 
 /* ---------------- 증원/후퇴 ---------------- */
