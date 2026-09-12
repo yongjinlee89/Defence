@@ -246,8 +246,8 @@ function render() {
 
 /* ------------------------------------------------------------------ 대기실 */
 
-const SETTING_LABELS = { startCash: '시작 자금', duration: '게임 시간' };
-const settingText = (key, v) => (key === 'duration' ? `${Math.round(v / 60)}분` : String(v));
+const SETTING_LABELS = { startCash: '시작 자금', duration: '게임 시간', raids: '약탈대 습격' };
+const settingText = (key, v) => (key === 'duration' ? `${Math.round(v / 60)}분` : key === 'raids' ? (v ? '있음' : '없음') : String(v));
 
 function renderLobby() {
   $('#lobby-room-code').textContent = '#' + S.roomId;
@@ -338,8 +338,12 @@ function renderHud() {
 
 function renderWave() {
   const g = S.game;
-  const left = g.nextWave - nowElapsed();
   const node = $('#hud-wave');
+  if (!g.raidsOn) {
+    node.textContent = '';
+    return;
+  }
+  const left = g.nextWave - nowElapsed();
   const warned = Object.keys(g.raids || {}).length > 0;
   // 좁은 화면에서는 짧게 — 상단 줄이 잘리거나 늘어나지 않게
   node.textContent = window.innerWidth <= 820 ? `🔥 ${g.round + 1}R 습격 ${mmss(left)}` : `🔥 ${g.round + 1}라운드 습격까지 ${mmss(left)}`;
@@ -646,7 +650,7 @@ function renderTilePane() {
         const D = unitsOf(tt);
         const towers = (tt.b || []).filter((b) => C.TOWER[b.k]);
         const ap = UNIT_KINDS.reduce((s, k) => s + (A[k] || 0) * C.UNIT[k].hp, 0);
-        const dp = UNIT_KINDS.reduce((s, k) => s + D[k] * C.UNIT[k].hp, 0) + towers.reduce((s, b) => s + (b.hp !== undefined ? b.hp : C.TOWER[b.k].hp), 0);
+        const dp = UNIT_KINDS.reduce((s, k) => s + D[k] * C.UNIT[k].hp, 0) + towers.reduce((s, b) => s + (b.hp !== undefined ? b.hp : C.TOWER[b.k].hp * C.TOWER_LV_MULT[(b.lv || 1) - 1]), 0);
         const tot = ap + dp || 1;
         aFill.style.width = `${(ap / tot) * 100}%`;
         dFill.style.width = `${(dp / tot) * 100}%`;
@@ -677,22 +681,27 @@ function renderTilePane() {
       const def = defOf(b.k);
       const row = el('div', 'slot');
       row.appendChild(ICONS.el(b.k, 20));
-      row.appendChild(el('span', 'name', def.name + (b.k === 'factory' ? ` Lv${b.lv || 1}` : '')));
+      row.appendChild(el('span', 'name', `${def.name} Lv${b.lv || 1}`));
       if (b.k === 'factory') row.appendChild(el('span', 'hp', `+${C.FACTORY.income * t.y * (b.lv || 1)}/초`));
       else {
         const hp = el('span', 'hp');
         live.push(() => {
           const bb = (tiles()[selected].b || [])[i];
-          if (bb) hp.textContent = `${bb.hp !== undefined ? Math.round(bb.hp) : C.TOWER[b.k].hp}/${C.TOWER[b.k].hp}`;
+          if (bb) {
+            const max = Math.round(C.TOWER[b.k].hp * C.TOWER_LV_MULT[(bb.lv || 1) - 1]);
+            hp.textContent = `${bb.hp !== undefined ? Math.round(bb.hp) : max}/${max}`;
+            hp.title = `화력 ×${C.TOWER_LV_MULT[(bb.lv || 1) - 1]}`;
+          }
         });
         row.appendChild(hp);
       }
       if (mine && !g.ended) {
-        if (b.k === 'factory' && (b.lv || 1) < C.MAX_LEVEL) {
-          const cost = Math.round(C.FACTORY.cost * Math.pow(C.UPGRADE_MULT, b.lv || 1));
+        if ((b.lv || 1) < C.MAX_LEVEL) {
+          const cost = Math.round(def.cost * Math.pow(C.UPGRADE_MULT, b.lv || 1));
           const up = el('button', 'small', `증설 💰${fmt(cost)}`);
+          up.title = b.k === 'factory' ? '수입이 레벨만큼 오릅니다' : `체력·화력 ×${C.TOWER_LV_MULT[b.lv || 1]} (전투 중엔 불가)`;
           up.addEventListener('click', () => emit('upgrade', { idx: selected, slot: i }));
-          live.push(() => (up.disabled = !me() || myCash() < cost));
+          live.push(() => (up.disabled = !me() || myCash() < cost || (b.k !== 'factory' && !!tiles()[selected].bt)));
           row.appendChild(up);
         }
         // 브라우저 확인창(confirm)은 앱 안 웹뷰·일부 모바일에서 막혀 항상 취소로 처리된다 — 두 번 누르기로 확인한다
@@ -965,7 +974,7 @@ function renderRankPane() {
   }
   table.appendChild(tbody);
   wrap.appendChild(table);
-  wrap.appendChild(el('p', 'dim', `${g.round}라운드 진행 중. 약탈대는 라운드가 오를수록 세지고, 영토 ${C.RAID_PER_LAND}칸마다 습격 지점이 하나씩 늘어납니다.`));
+  wrap.appendChild(el('p', 'dim', g.raidsOn ? `${g.round}라운드 진행 중. 약탈대는 라운드가 오를수록 세지고, 영토 ${C.RAID_PER_LAND}칸마다 습격 지점이 하나씩 늘어납니다.` : '약탈대 습격 없음 — 상대 플레이어만 조심하면 됩니다.'));
 }
 
 /* ------------------------------------------------------------------ 도움말 */
@@ -983,11 +992,11 @@ function renderHelpPane() {
     const ic = (k) => ICONS.svg(k, 16);
     add(`<span class="k">상성 한 줄</span><br>${ic('tank')} 전차는 ${ic('inf')} 보병을, ${ic('air')} 항공기는 ${ic('tank')} 전차를 잡습니다. 항공기는 ${ic('aa')} 대공포나 ${ic('air')} 항공기로만 막을 수 있습니다.<br>${ic('mg')} 기관총은 보병, ${ic('cannon')} 포탑은 전차, ${ic('aa')} 대공포는 항공기를 막습니다.`);
     for (const [k, d] of Object.entries(C.UNIT)) add(`<span class="k">${ic(k)} ${d.name}</span> 💰${d.cost} · 체력 ${d.hp} · 공격 ${d.dps}/초<br><span class="dim">${d.desc}</span>`);
-    for (const [k, d] of Object.entries(C.TOWER)) add(`<span class="k">${ic(k)} ${d.name}</span> 💰${d.cost} · 체력 ${d.hp} · 공격 ${d.dps}/초<br><span class="dim">${d.desc} 수비할 때만 싸우고, 부지를 한 칸 씁니다.</span>`);
+    for (const [k, d] of Object.entries(C.TOWER)) add(`<span class="k">${ic(k)} ${d.name}</span> 💰${d.cost} · 체력 ${d.hp} · 공격 ${d.dps}/초<br><span class="dim">${d.desc} 수비할 때만 싸우고, 부지를 한 칸 씁니다. 증설하면 체력·화력이 ×${C.TOWER_LV_MULT[1]}, ×${C.TOWER_LV_MULT[2]}.</span>`);
     add(`<span class="k">${ic('factory')} ${C.FACTORY.name}</span> 💰${C.FACTORY.cost} · 초당 ${C.FACTORY.income}×땅 등급×레벨<br><span class="dim">${C.FACTORY.desc}</span>`);
     add(`<span class="k">🚩 땅</span> 등급(💰 1~3)이 높을수록 기본 수입과 공장 수입이 높고 부지가 많습니다. 돈을 들여 등급을 올릴 수 있습니다 (${C.LAND_UPGRADE[1]} → ${C.LAND_UPGRADE[2]}). 공장이 없어도 초당 ${C.LAND_INCOME}×등급을 법니다. 영토를 넓히는 것만으로 수입이 늘지만, ${C.RAID_PER_LAND}칸마다 습격 지점이 하나씩 늘어납니다.`);
     add(`<span class="k">💸 유지비</span><br><span class="dim">병력은 초당 가격의 ${C.UPKEEP * 100}% 를 유지비로 씁니다 (보병 ${C.UNIT.inf.cost * C.UPKEEP}, 전차 ${C.UNIT.tank.cost * C.UPKEEP}, 항공기 ${C.UNIT.air.cost * C.UPKEEP}). 돈이 바닥나면 병력이 흩어집니다.</span>`);
-    add('<span class="k">💡 요령</span><br><span class="dim">· 습격은 12초 전에 예고됩니다. 옆 땅의 병력을 옮겨 막으세요.<br>· 점령하면 상대 공장을 그대로 가져옵니다. 타워는 전투에서 부서집니다.<br>· 타워는 병력보다 싸고 튼튼하지만 움직이지 못하고 부지를 씁니다.<br>· 땅이 많을수록 약탈대도 커집니다. 넓힌 만큼 지키세요.</span>');
+    add(`<span class="k">💡 요령</span><br><span class="dim">${S.game.raidsOn ? '· 습격은 12초 전에 예고됩니다. 옆 땅의 병력을 옮겨 막으세요.<br>' : ''}· 점령하면 상대 공장을 그대로 가져옵니다. 타워는 전투에서 부서집니다.<br>· 타워는 병력보다 싸고 튼튼하지만 움직이지 못하고 부지를 씁니다.<br>${S.game.raidsOn ? '· 땅이 많을수록 습격 지점이 늘어납니다. 넓힌 만큼 지키세요.' : '· 땅을 넓힐수록 수입이 늘지만 지킬 곳도 늘어납니다.'}</span>`);
     wrap.appendChild(list);
   });
 }

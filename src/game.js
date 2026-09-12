@@ -40,6 +40,8 @@ const LAND_INCOME = 1; // 땅 기본 수입: 초당 0.5 × 땅 등급 (공장 �
 const MAX_YIELD = 3;
 const LAND_UPGRADE = { 1: 400, 2: 700 }; // 땅 등급 올리기 비용 (현재 등급 → +1). 등급이 오르면 기본 수입·공장 수입이 오르고 부지가 한 칸 는다
 const MAX_LEVEL = 3;
+// 타워 레벨별 체력·화력 배수 (1→2→3레벨). 증설 비용은 공장과 같은 규칙(건설비 × UPGRADE_MULT^현재 레벨)
+const TOWER_LV_MULT = [1, 1.6, 2.4];
 const UPGRADE_MULT = 1.5; // 레벨업 비용 = 건설비 × 1.5^(현재 레벨) — 새로 짓는 것보다 조금 비싸지만 부지를 아낀다
 const LAND_VALUE = 300; // 순자산에 더하는 땅 한 칸의 가치
 
@@ -91,7 +93,7 @@ function rng(seed) {
 
 class Game {
   constructor(players, settings) {
-    this.settings = { startCash: 800, duration: 600, ...settings };
+    this.settings = { startCash: 800, duration: 600, raids: 0, ...settings };
     this.elapsed = 0;
     this.ended = false;
     this.ranking = null;
@@ -198,7 +200,19 @@ class Game {
   }
 
   upgradeCost(b) {
-    return Math.round(FACTORY.cost * Math.pow(UPGRADE_MULT, b.lv));
+    const base = b.k === 'factory' ? FACTORY.cost : TOWER[b.k].cost;
+    return Math.round(base * Math.pow(UPGRADE_MULT, b.lv || 1));
+  }
+  /** 타워의 레벨 배수 / 최대 체력 */
+  static towerMult(b) {
+    return TOWER_LV_MULT[(b.lv || 1) - 1];
+  }
+  static towerMax(b) {
+    return TOWER[b.k].hp * Game.towerMult(b);
+  }
+  /** 봇·화면이 쓰는 "게임 진행 단계" — 습격이 꺼져 있으면 시간으로 센다 */
+  stage() {
+    return this.settings.raids ? this.round : Math.floor(this.elapsed / WAVE_SEC);
   }
 
   /** 초당 수입 = 땅 기본 수입 + 공장 합계 */
@@ -253,12 +267,18 @@ class Game {
     if (r.error) return { ok: false, error: r.error };
     const { p, t } = r;
     const b = t.b[slot];
-    if (!b || b.k !== 'factory') return { ok: false, error: '증설할 수 있는 건물이 아닙니다.' };
-    if (b.lv >= MAX_LEVEL) return { ok: false, error: '최대 레벨입니다.' };
+    if (!b) return { ok: false, error: '없는 건물입니다.' };
+    if ((b.lv || 1) >= MAX_LEVEL) return { ok: false, error: '최대 레벨입니다.' };
+    if (TOWER[b.k] && t.battle) return { ok: false, error: '전투 중에는 타워를 증설할 수 없습니다.' };
     const cost = this.upgradeCost(b);
     if (p.cash < cost) return { ok: false, error: '돈이 부족합니다.' };
     p.cash -= cost;
-    b.lv++;
+    if (TOWER[b.k]) {
+      // 타워: 체력 상한이 오르고 오른 만큼 즉시 채워진다 (화력은 defenders() 에서 배수로 반영)
+      const before = Game.towerMax(b);
+      b.lv = (b.lv || 1) + 1;
+      b.hp += Game.towerMax(b) - before;
+    } else b.lv++;
     return { ok: true };
   }
 
@@ -407,7 +427,7 @@ class Game {
       }
       for (const t of this.landOf(p.id)) {
         if (t.battle) continue;
-        for (const b of t.b) if (TOWER[b.k] && b.hp < TOWER[b.k].hp) b.hp = Math.min(TOWER[b.k].hp, b.hp + TOWER_REPAIR * dt);
+        for (const b of t.b) if (TOWER[b.k] && b.hp < Game.towerMax(b)) b.hp = Math.min(Game.towerMax(b), b.hp + TOWER_REPAIR * dt);
       }
     }
   }
@@ -422,7 +442,8 @@ class Game {
   defenders(t) {
     const D = {};
     for (const u of UNIT_KINDS) if (t.units[u] > 0) D[u] = t.units[u];
-    for (const b of t.b) if (TOWER[b.k] && b.hp > 0) D[b.k] = (D[b.k] || 0) + 1;
+    // 타워는 레벨 배수만큼의 '문 수' 로 센다 — 2레벨 타워 하나는 1.6문의 화력
+    for (const b of t.b) if (TOWER[b.k] && b.hp > 0) D[b.k] = (D[b.k] || 0) + Game.towerMult(b);
     return D;
   }
 
@@ -526,6 +547,7 @@ class Game {
   }
 
   tickWaves() {
+    if (!this.settings.raids) return; // 약탈대 습격 꺼짐 (대기실 설정)
     if (Object.keys(this.raids).length === 0 && this.elapsed >= this.nextWave - WAVE_WARN) {
       const names = [];
       for (const p of this.players) {
@@ -573,7 +595,7 @@ class Game {
     let v = p.cash;
     for (const t of this.landOf(p.id)) {
       v += LAND_VALUE;
-      for (const b of t.b) v += b.k === 'factory' ? FACTORY.cost * 0.6 * b.lv : TOWER[b.k].cost * 0.5;
+      for (const b of t.b) v += b.k === 'factory' ? FACTORY.cost * 0.6 * b.lv : TOWER[b.k].cost * 0.5 * Game.towerMult(b);
       v += this.unitValue(t.units);
     }
     return Math.round(v);
@@ -632,8 +654,10 @@ class Game {
       if (t.b.length) {
         o.b = t.b.map((b) => {
           if (b.k === 'factory') return b.lv > 1 ? { k: b.k, lv: b.lv } : { k: b.k };
-          const full = TOWER[b.k].hp;
-          return b.hp < full - 0.5 ? { k: b.k, hp: Math.round(b.hp) } : { k: b.k };
+          const o2 = { k: b.k };
+          if ((b.lv || 1) > 1) o2.lv = b.lv;
+          if (b.hp < Game.towerMax(b) - 0.5) o2.hp = Math.round(b.hp);
+          return o2;
         });
       }
       const u = units(t.units);
@@ -650,6 +674,7 @@ class Game {
       ended: this.ended,
       round: this.round,
       nextWave: this.nextWave,
+      raidsOn: this.settings.raids ? 1 : 0,
       raids,
       ranking: this.ranking,
       map: { w: this.map.w, h: this.map.h, tiles },
@@ -666,7 +691,7 @@ class Game {
         capital: p.capital,
       })),
       // 상수는 게임 중 안 바뀌므로 첫 전송 뒤에는 diff 에서 빠진다
-      constants: { UNIT, TOWER, FACTORY, LAND_INCOME, LAND_UPGRADE, MAX_YIELD, MULT, MAX_LEVEL, UPGRADE_MULT, WAVE_SEC, WAVE_WARN, RAID_PER_LAND, DEMOLISH_REFUND, UPKEEP },
+      constants: { UNIT, TOWER, TOWER_LV_MULT, FACTORY, LAND_INCOME, LAND_UPGRADE, MAX_YIELD, MULT, MAX_LEVEL, UPGRADE_MULT, WAVE_SEC, WAVE_WARN, RAID_PER_LAND, DEMOLISH_REFUND, UPKEEP },
     };
   }
 }

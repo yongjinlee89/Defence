@@ -20,11 +20,13 @@ const BOT_THINK_MS = 1500;
 const DEFAULT_SETTINGS = {
   startCash: 1200,
   duration: 600,
+  raids: 0, // 약탈대 습격 (0 없음 / 1 있음)
 };
 
 const SETTING_CHOICES = {
   startCash: [800, 1200, 2000, 3000],
   duration: [600, 900, 1200],
+  raids: [0, 1],
 };
 
 /**

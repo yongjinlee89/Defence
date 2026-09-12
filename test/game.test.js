@@ -9,7 +9,7 @@ const P = [
   { id: 'a', name: '갑' },
   { id: 'b', name: '을' },
 ];
-const newGame = (opts = {}) => new Game(P, { startCash: 800, duration: 600, seed: 7, ...opts });
+const newGame = (opts = {}) => new Game(P, { startCash: 800, duration: 600, seed: 7, raids: 1, ...opts });
 const tick = (g, sec) => {
   for (let i = 0; i < sec * 4; i++) g.tick(0.25);
 };
@@ -70,7 +70,20 @@ const cap = (g, pid) => g.map.tiles[g.player(pid).capital];
   assert.strictEqual(ca.b[slot].lv, 2);
   assert.strictEqual(before - p.cash, 300, '증설 1.5배');
   assert.ok(Math.abs(g.incomeOf(p) - 16.5) < 1e-9);
-  assert.ok(!g.upgrade('a', ca.idx, ca.b.findIndex((b) => b.k === 'mg')).ok, '타워는 증설 불가');
+  // 타워 증설: 체력 상한·화력 배수 상승, 비용은 타워 건설비 × 1.5^레벨
+  const mgSlot = ca.b.findIndex((b) => b.k === 'mg');
+  p.cash = 1000;
+  assert.ok(g.upgrade('a', ca.idx, mgSlot).ok);
+  assert.strictEqual(ca.b[mgSlot].lv, 2);
+  assert.strictEqual(p.cash, 1000 - 150);
+  assert.ok(Math.abs(ca.b[mgSlot].hp - 96) < 1e-9, '60 × 1.6');
+  assert.ok(Math.abs(g.defenders(ca).mg - 1.6) < 1e-9, '2레벨 기관총은 1.6문');
+  assert.ok(g.upgrade('a', ca.idx, mgSlot).ok);
+  assert.strictEqual(ca.b[mgSlot].lv, 3);
+  assert.ok(!g.upgrade('a', ca.idx, mgSlot).ok, '3레벨이 최대');
+  const ps = g.publicState().map.tiles[ca.idx].b[mgSlot];
+  assert.strictEqual(ps.lv, 3);
+  assert.strictEqual(ps.hp, undefined, '만피면 hp 안 보냄');
   // 땅 개발 — 수도는 이미 최고 등급, 등급 1 땅을 뺏어 개발하면 부지 +1, 수입 상승
   assert.ok(!g.upgradeLand('a', ca.idx).ok, '최고 등급은 더 못 올린다');
   const low = g.map.tiles.find((t) => !t.owner && t.yield === 1);
@@ -204,6 +217,12 @@ const cap = (g, pid) => g.map.tiles[g.player(pid).capital];
 
 /* ---------------- 습격 라운드 ---------------- */
 {
+  const off = newGame({ raids: 0 });
+  tick(off, WAVE_SEC + 5);
+  assert.strictEqual(off.round, 0, '습격 꺼짐이면 라운드가 안 오른다');
+  assert.ok(off.map.tiles.every((t) => !t.battle));
+  assert.strictEqual(off.publicState().raidsOn, 0);
+  assert.strictEqual(off.stage(), 1, '단계는 시간으로 센다');
   const g = newGame();
   tick(g, WAVE_SEC - WAVE_WARN + 1);
   assert.strictEqual(Object.keys(g.raids).length, 2, '예고가 뜬다');

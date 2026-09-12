@@ -40,7 +40,8 @@ function think(game, pid) {
     const towers = t.b.filter((b) => TOWER[b.k]).length;
     const factories = t.b.filter((b) => b.k === 'factory').length;
     const maxTowers = Math.min(3, t.slots - 2);
-    const wantTowers = Math.min(maxTowers, 1 + Math.floor((game.round + 1) / 2));
+    const stage = game.stage();
+    const wantTowers = Math.min(maxTowers, 1 + Math.floor((stage + 1) / 2));
     let kind = null;
     if (factories === 0) kind = 'factory';
     else if (towers < wantTowers) {
@@ -57,10 +58,11 @@ function think(game, pid) {
     const t = land.filter((x) => x.yield < 3 && !x.battle && x.b.filter((b) => b.k === 'factory').length >= 2).sort((a, b) => b.b.length - a.b.length)[0];
     if (t && game.upgradeLand(pid, t.idx).ok) changed = true;
   }
-  // 공장 증설 — 돈이 넉넉할 때
+  // 증설 — 돈이 넉넉할 때 공장을, 부지가 다 찼으면 타워도
   if (p.cash > 700) {
     for (const t of land) {
-      const i = t.b.findIndex((b) => b.k === 'factory' && b.lv < 3);
+      let i = t.b.findIndex((b) => b.k === 'factory' && b.lv < 3);
+      if (i < 0 && t.b.length >= t.slots && !t.battle) i = t.b.findIndex((b) => TOWER[b.k] && (b.lv || 1) < 3);
       if (i >= 0 && game.upgrade(pid, t.idx, i).ok) {
         changed = true;
         break;
@@ -70,13 +72,14 @@ function think(game, pid) {
 
   // 2) 병력 — 가장 약한 땅부터
   const weakest = [...land].sort((a, b) => defensePower(game, a) - defensePower(game, b))[0];
-  const minPower = 200 + game.round * 180;
+  const stage = game.stage();
+  const minPower = 200 + stage * 180;
   if (defensePower(game, weakest) < minPower) {
-    const pick = game.round >= 4 && p.cash > 300 ? 'tank' : 'inf';
+    const pick = stage >= 4 && p.cash > 300 ? 'tank' : 'inf';
     if (game.train(pid, weakest.idx, pick, pick === 'inf' ? 3 : 1).ok) changed = true;
   } else if (p.cash > 500) {
     const strongest = [...land].sort((a, b) => power(b.units) - power(a.units))[0];
-    const pick = p.cash > 800 && game.round >= 3 ? 'air' : p.cash > 400 ? 'tank' : 'inf';
+    const pick = p.cash > 800 && stage >= 3 ? 'air' : p.cash > 400 ? 'tank' : 'inf';
     if (game.train(pid, strongest.idx, pick, pick === 'inf' ? 4 : 1).ok) changed = true;
   }
 
