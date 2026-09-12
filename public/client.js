@@ -341,7 +341,8 @@ function renderWave() {
   const left = g.nextWave - nowElapsed();
   const node = $('#hud-wave');
   const warned = Object.keys(g.raids || {}).length > 0;
-  node.textContent = `🔥 ${g.round + 1}라운드 습격까지 ${mmss(left)}`;
+  // 좁은 화면에서는 짧게 — 상단 줄이 잘리거나 늘어나지 않게
+  node.textContent = window.innerWidth <= 820 ? `🔥 ${g.round + 1}R 습격 ${mmss(left)}` : `🔥 ${g.round + 1}라운드 습격까지 ${mmss(left)}`;
   node.classList.toggle('soon', warned);
 }
 
