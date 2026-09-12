@@ -228,6 +228,48 @@ const cap = (g, pid) => g.map.tiles[g.player(pid).capital];
   console.log('✓ 보병 점령 규칙');
 }
 
+/* ---------------- 원거리 행군 ---------------- */
+{
+  const g = newGame({ raids: 0 });
+  const p = g.player('a');
+  const ca = cap(g, 'a');
+  // 수도 → 옆 중립 → 그 옆 중립 (두 칸 떨어진 목표)
+  const mid = g.neighbors(ca).find((x) => !x.owner);
+  const far = g.neighbors(mid).find((x) => !x.owner && x.idx !== ca.idx && !g.adjacent(x, ca));
+  mid.units = { inf: 2, tank: 0, air: 0 };
+  mid.b = [];
+  far.units = { inf: 2, tank: 0, air: 0 };
+  far.b = [];
+  ca.units.inf = 40;
+  assert.ok(g.attack('a', ca.idx, far.idx, { inf: 30 }).ok, '두 칸 떨어진 땅도 공격 가능');
+  assert.strictEqual(g.armies.length, 1);
+  assert.ok(mid.battle && mid.battle.att === 'a', '길목에서 먼저 싸운다');
+  assert.strictEqual(far.battle, null);
+  tick(g, 2.5);
+  assert.strictEqual(mid.owner, 'a', '길목을 점령하고');
+  assert.ok(g.armies.length === 1, '부대는 계속 행군 중');
+  assert.strictEqual(far.owner, null, '아직 목표 전');
+  tick(g, 20);
+  assert.strictEqual(far.owner, 'a', '목표까지 점령');
+  assert.strictEqual(g.armies.length, 0, '도착하면 해산');
+  assert.ok(far.units.inf > 15, '생존 병력이 목표에 주둔');
+  assert.ok(mid.units.inf === 0, '길목에는 남기지 않는다');
+  // 이동은 내 땅으로만 이어진 길이 있어야 한다
+  const island = g.map.tiles.find((t) => !t.owner && !g.adjacent(t, ca) && !g.adjacent(t, mid) && !g.adjacent(t, far));
+  island.owner = 'a';
+  assert.ok(!g.move('a', ca.idx, island.idx, 'all').ok, '내 땅으로 이어지지 않으면 이동 불가');
+  assert.ok(g.move('a', far.idx, ca.idx, { inf: 5 }).ok, '두 칸 이동 (내 땅만 지나서)');
+  assert.strictEqual(g.armies.length, 1, '멀면 행군한다');
+  tick(g, 5);
+  assert.strictEqual(g.armies.length, 0);
+  assert.ok(ca.units.inf >= 15, '도착');
+  // 행군 중 부대는 공개 상태에 실린다
+  g.move('a', ca.idx, far.idx, { inf: 3 });
+  const ps = g.publicState();
+  assert.strictEqual(Object.keys(ps.armies).length, 1);
+  console.log('✓ 원거리 행군 (길목 순차 전투, 이동 경로 제한)');
+}
+
 /* ---------------- 연구 강화 ---------------- */
 {
   // 같은 보병 12 vs 12 — 강화 3단계면 강화한 쪽이 이긴다

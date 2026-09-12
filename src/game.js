@@ -72,6 +72,7 @@ const MULT = {
 const WAVE_SEC = 75; // 습격 간격
 const WAVE_WARN = 12; // 습격 예고 (초)
 const RAID_PER_LAND = 3; // 영토 3칸마다 습격 지점이 하나씩 늘어난다
+const MARCH_SEC = 2; // 부대가 내 땅 한 칸을 지나는 데 걸리는 시간
 const BATTLE_LIMIT = 150; // 이보다 긴 전투는 공격자 후퇴로 강제 종료 (교착 방지)
 const TOWER_REPAIR = 1; // 전투 중이 아닐 때 타워 초당 수리량
 const DEMOLISH_REFUND = 0.3;
@@ -113,6 +114,8 @@ class Game {
     this.round = 0;
     this.nextWave = WAVE_SEC;
     this.raids = {}; // 예고된 습격 {pid: [tileIdx, ...]}
+    this.armies = []; // 행군 중인 부대 {id, owner, units, path, i, wait, battleAt}
+    this._armySeq = 0;
     this.log = [];
     this._logSeq = 0;
     this._rand = rng(this.settings.seed || (Date.now() & 0xffffffff));
@@ -271,6 +274,7 @@ class Game {
       if (t.owner === p.id) for (const u of UNIT_KINDS) if (u !== 'inf') v += t.units[u] * UNIT[u].cost * UPKEEP;
       if (t.battle && t.battle.att === p.id) for (const u of UNIT_KINDS) v += t.battle.A[u] * UNIT[u].cost * UPKEEP;
     }
+    for (const a of this.armies) if (a.owner === p.id && a.battleAt === null) for (const u of UNIT_KINDS) v += a.units[u] * UNIT[u].cost * UPKEEP;
     return v;
   }
 
@@ -384,60 +388,151 @@ class Game {
     return any ? out : null;
   }
 
-  move(pid, from, to, want) {
+  /**
+   * 최단 경로 (상하좌우). 내 땅은 비용 1, 남의 땅은 비용 3 — 가능하면 내 땅으로 돌아가고,
+   * 남의 땅을 지나야 하면 그 수가 가장 적은 길을 고른다. ownOnly 면 내 땅만 지난다.
+   */
+  findPath(pid, from, to, ownOnly) {
+    const n = this.map.tiles.length;
+    const dist = new Array(n).fill(Infinity);
+    const prev = new Array(n).fill(-1);
+    const done = new Array(n).fill(false);
+    dist[from] = 0;
+    for (;;) {
+      let cur = -1;
+      for (let i = 0; i < n; i++) if (!done[i] && dist[i] < Infinity && (cur < 0 || dist[i] < dist[cur])) cur = i;
+      if (cur < 0 || cur === to) break;
+      done[cur] = true;
+      for (const nb of this.neighbors(this.map.tiles[cur])) {
+        const own = nb.owner === pid;
+        if (ownOnly && !own && nb.idx !== to) continue;
+        const w = own ? 1 : 3;
+        if (dist[cur] + w < dist[nb.idx]) {
+          dist[nb.idx] = dist[cur] + w;
+          prev[nb.idx] = cur;
+        }
+      }
+    }
+    if (dist[to] === Infinity) return null;
+    const path = [];
+    for (let i = to; i !== -1; i = prev[i]) path.unshift(i);
+    return path;
+  }
+
+  /** 출발지에서 병력을 떼어 부대를 만들고 첫걸음을 바로 내딛는다 */
+  dispatch(pid, from, to, want, ownOnly) {
     if (this.ended) return { ok: false, error: '게임이 끝났습니다.' };
     const r = this.ownedTile(pid, from);
     if (r.error) return { ok: false, error: r.error };
     const a = r.t;
     const b = this.tile(to);
-    if (!b || b.owner !== pid) return { ok: false, error: '내 영토로만 이동할 수 있습니다.' };
-    if (!this.adjacent(a, b)) return { ok: false, error: '인접한 영토로만 이동할 수 있습니다.' };
-    const units = this.takeUnits(a, want);
-    if (!units) return { ok: false, error: '보낼 병력이 없습니다.' };
-    for (const u of UNIT_KINDS) {
-      a.units[u] -= units[u];
-      b.units[u] += units[u];
-    }
-    return { ok: true };
-  }
-
-  attack(pid, from, to, want) {
-    if (this.ended) return { ok: false, error: '게임이 끝났습니다.' };
-    const r = this.ownedTile(pid, from);
-    if (r.error) return { ok: false, error: r.error };
-    const { p, t: a } = r;
-    const b = this.tile(to);
     if (!b) return { ok: false, error: '없는 영토입니다.' };
-    if (b.owner === pid) return { ok: false, error: '내 영토는 공격할 수 없습니다. 이동을 쓰세요.' };
-    if (!this.adjacent(a, b)) return { ok: false, error: '인접한 영토만 공격할 수 있습니다.' };
-    if (b.battle && b.battle.att !== pid) return { ok: false, error: '이미 다른 전투가 벌어지고 있는 영토입니다.' };
+    if (b.idx === a.idx) return { ok: false, error: '같은 영토입니다.' };
+    const path = this.findPath(pid, from, to, ownOnly);
+    if (!path) return { ok: false, error: ownOnly ? '내 땅으로만 이어지는 길이 없습니다. 공격으로 뚫으세요.' : '길이 없습니다.' };
     const units = this.takeUnits(a, want);
     if (!units) return { ok: false, error: '보낼 병력이 없습니다.' };
     for (const u of UNIT_KINDS) a.units[u] -= units[u];
-    if (b.battle) {
-      for (const u of UNIT_KINDS) b.battle.A[u] += units[u];
-      b.battle.from = from;
-    } else {
-      b.battle = { att: pid, from, A: units, t: 0 };
-      const owner = b.owner ? this.player(b.owner) : null;
-      this.pushLog(`⚔️ ${p.name} 이(가) ${b.name}${owner ? ` (${owner.name})` : ' (중립)'} 을(를) 공격합니다.`);
-    }
+    const army = { id: ++this._armySeq, owner: pid, units, path, i: 0, wait: 0, battleAt: null };
+    this.armies.push(army);
+    this.stepArmy(army, 0);
     return { ok: true };
+  }
+
+  /** 이동 — 내 땅으로, 내 땅만 지나서 */
+  move(pid, from, to, want) {
+    const b = this.tile(to);
+    if (!b || b.owner !== pid) return { ok: false, error: '내 영토로만 이동할 수 있습니다.' };
+    return this.dispatch(pid, from, to, want, true);
+  }
+
+  /** 공격 — 어느 땅이든. 길목의 남의 땅마다 차례로 싸워 점령하며 나아간다 */
+  attack(pid, from, to, want) {
+    const b = this.tile(to);
+    if (!b) return { ok: false, error: '없는 영토입니다.' };
+    if (b.owner === pid) return { ok: false, error: '내 영토는 공격할 수 없습니다. 이동을 쓰세요.' };
+    if (b.battle && b.battle.att !== pid) return { ok: false, error: '이미 다른 전투가 벌어지고 있는 영토입니다.' };
+    return this.dispatch(pid, from, to, want, false);
+  }
+
+  /** 부대 한 걸음. 다음 칸이 내 땅이면 전진, 남의 땅이면 전투 시작, 끝이면 주둔 */
+  stepArmy(army, dt) {
+    if (army.battleAt !== null) return;
+    army.wait -= dt;
+    if (army.wait > 0) return;
+    const next = army.path[army.i + 1];
+    if (next === undefined) return this.disbandArmy(army, army.path[army.i]);
+    const t = this.map.tiles[next];
+    if (t.owner === army.owner) {
+      army.i++;
+      // 목적지에 닿았으면 바로 주둔 (인접 이동은 즉시 끝난다)
+      if (army.i === army.path.length - 1) return this.disbandArmy(army, next);
+      army.wait = MARCH_SEC;
+      return;
+    }
+    if (t.battle) {
+      if (t.battle.att === army.owner) {
+        // 아군이 이미 싸우는 중이면 합류
+        for (const u of UNIT_KINDS) t.battle.A[u] += army.units[u];
+        const lead = this.armies.find((x) => x.id === t.battle.army);
+        if (lead) {
+          // 합류한 부대의 목적지가 더 멀면 선두 부대가 그 길을 이어받는다
+          if (army.path.length - army.i > lead.path.length - lead.i) {
+            lead.path = army.path;
+            lead.i = army.i;
+          }
+        }
+        this.removeArmy(army);
+      }
+      // 남의 전투가 벌어지고 있으면 그 자리에서 기다린다
+      return;
+    }
+    t.battle = { att: army.owner, from: army.path[army.i], A: army.units, army: army.id };
+    army.battleAt = next;
+    const p = this.player(army.owner);
+    const owner = t.owner ? this.player(t.owner) : null;
+    const dest = army.path[army.path.length - 1];
+    this.pushLog(`⚔️ ${p.name} 이(가) ${t.name}${owner ? ` (${owner.name})` : ' (중립)'} 을(를) 공격합니다.${dest !== next ? ` (목표 ${this.map.tiles[dest].name})` : ''}`);
+  }
+
+  /** 부대를 해산해 병력을 그 땅에 주둔시킨다 (내 땅이 아니면 흩어진다) */
+  disbandArmy(army, at) {
+    const t = this.tile(at);
+    this.removeArmy(army);
+    if (t && t.owner === army.owner) {
+      for (const u of UNIT_KINDS) t.units[u] += army.units[u];
+      return true;
+    }
+    return false;
+  }
+  removeArmy(army) {
+    const i = this.armies.indexOf(army);
+    if (i >= 0) this.armies.splice(i, 1);
+  }
+  armyOf(bt) {
+    return bt && bt.army ? this.armies.find((x) => x.id === bt.army) : null;
+  }
+
+  tickArmies(dt) {
+    for (const army of [...this.armies]) this.stepArmy(army, dt);
   }
 
   retreat(pid, idx) {
     const t = this.tile(idx);
     if (!t || !t.battle || t.battle.att !== pid) return { ok: false, error: '내가 공격 중인 전투가 아닙니다.' };
     const p = this.player(pid);
-    const back = this.tile(t.battle.from);
-    const survivors = t.battle.A;
+    const bt = t.battle;
+    const army = this.armyOf(bt);
+    t.battle = null;
+    const backIdx = army ? army.path[army.i] : bt.from;
+    const back = this.tile(backIdx);
+    if (army) this.removeArmy(army);
     if (back && back.owner === pid) {
-      for (const u of UNIT_KINDS) back.units[u] += survivors[u];
+      for (const u of UNIT_KINDS) back.units[u] += bt.A[u];
       this.pushLog(`🏳️ ${p.name} 이(가) ${t.name} 에서 후퇴했습니다.`);
     } else {
       this.pushLog(`🏳️ ${p.name} 이(가) ${t.name} 에서 후퇴했지만 돌아갈 땅이 없어 병력이 흩어졌습니다.`);
     }
-    t.battle = null;
     return { ok: true };
   }
 
@@ -448,6 +543,7 @@ class Game {
     this.elapsed += dt;
     this.tickEconomy(dt);
     this.tickBattles(dt);
+    this.tickArmies(dt);
     this.tickWaves();
     if (this.elapsed >= this.settings.duration) this.finish('제한 시간이 끝났습니다.');
     else {
@@ -546,7 +642,9 @@ class Game {
     t.battle = null;
     const attName = bt.att === 'npc' ? '약탈대' : this.player(bt.att).name;
     const prevOwner = t.owner ? this.player(t.owner) : null;
+    const army = this.armyOf(bt);
     if (winner === 'defender') {
+      if (army) this.removeArmy(army);
       this.pushLog(`🛡️ ${t.name} 방어 성공 — ${attName}의 공격을 막았습니다.`);
       return;
     }
@@ -554,7 +652,9 @@ class Game {
     if (bt.A.inf < 0.5) {
       t.b = t.b.filter((b) => b.k === 'factory');
       t.units = emptyUnits();
-      const back = bt.att !== 'npc' ? this.tile(bt.from) : null;
+      const backIdx = army ? army.path[army.i] : bt.from;
+      const back = bt.att !== 'npc' ? this.tile(backIdx) : null;
+      if (army) this.removeArmy(army);
       if (back && back.owner === bt.att) {
         for (const u of UNIT_KINDS) back.units[u] += bt.A[u];
         this.pushLog(`⚠️ ${attName} 이(가) ${t.name} 수비대를 전멸시켰지만 보병이 없어 점령하지 못하고 돌아갔습니다.`);
@@ -563,8 +663,16 @@ class Game {
     }
     t.b = t.b.filter((b) => b.k === 'factory');
     t.units = emptyUnits();
-    for (const u of UNIT_KINDS) t.units[u] = bt.A[u];
     t.owner = bt.att === 'npc' ? null : bt.att;
+    if (army && army.path[army.path.length - 1] !== t.idx) {
+      // 목적지가 더 남았다 — 점령한 땅을 밟고 계속 행군한다
+      army.i++;
+      army.battleAt = null;
+      army.wait = MARCH_SEC;
+    } else {
+      for (const u of UNIT_KINDS) t.units[u] = bt.A[u];
+      if (army) this.removeArmy(army);
+    }
     if (bt.att === 'npc') this.pushLog(`💀 ${t.name} (${prevOwner ? prevOwner.name : '?'}) 이(가) 약탈대에게 함락됐습니다!`);
     else this.pushLog(`🚩 ${attName} 이(가) ${t.name} 을(를) 점령했습니다${prevOwner ? ` (${prevOwner.name} 에게서)` : ''}.`);
     if (prevOwner) this.checkElimination(prevOwner);
@@ -721,6 +829,12 @@ class Game {
     });
     const raids = {};
     for (const [pid, idxs] of Object.entries(this.raids)) for (const idx of idxs) raids[idx] = pid;
+    // 행군 중인 부대 (전투 중인 부대는 타일의 bt 로 보인다). id 키 객체 — 배열 밀림 재전송 방지
+    const armies = {};
+    for (const a of this.armies) {
+      if (a.battleAt !== null) continue;
+      armies[a.id] = { o: a.owner, at: a.path[a.i], to: a.path[a.path.length - 1], u: units(a.units) };
+    }
     return {
       elapsed: econ.elapsed,
       duration: this.settings.duration,
@@ -729,6 +843,7 @@ class Game {
       nextWave: this.nextWave,
       raidsOn: this.settings.raids ? 1 : 0,
       raids,
+      armies,
       ranking: this.ranking,
       map: { w: this.map.w, h: this.map.h, tiles },
       players: this.players.map((p, i) => ({
@@ -745,7 +860,7 @@ class Game {
         rs: p.rs,
       })),
       // 상수는 게임 중 안 바뀌므로 첫 전송 뒤에는 diff 에서 빠진다
-      constants: { UNIT, TOWER, TOWER_LV_MULT, FACTORY, RESEARCH, RESEARCH_STEP, UNIT_RESEARCH, LAND_INCOME, LAND_UPGRADE, MAX_YIELD, MULT, MAX_LEVEL, UPGRADE_MULT, WAVE_SEC, WAVE_WARN, RAID_PER_LAND, DEMOLISH_REFUND, UPKEEP },
+      constants: { MARCH_SEC, UNIT, TOWER, TOWER_LV_MULT, FACTORY, RESEARCH, RESEARCH_STEP, UNIT_RESEARCH, LAND_INCOME, LAND_UPGRADE, MAX_YIELD, MULT, MAX_LEVEL, UPGRADE_MULT, WAVE_SEC, WAVE_WARN, RAID_PER_LAND, DEMOLISH_REFUND, UPKEEP },
     };
   }
 }

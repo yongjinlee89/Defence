@@ -460,6 +460,34 @@ function drawMap() {
       drawUnitRow(px + size - 6, py + size - fs * 2.4 - 6, fs, a, '#fca5a5', true, size - 12);
     }
   });
+  // 행군 중인 부대 — 지금 있는 칸에 부대 표시, 목표 칸까지 점선 화살표
+  for (const a of Object.values(g.armies || {})) {
+    const from = xyOf(a.at);
+    const to = xyOf(a.to);
+    const fx = from.x * cell + cell / 2;
+    const fy = from.y * cell + cell / 2;
+    const tx = to.x * cell + cell / 2;
+    const ty = to.y * cell + cell / 2;
+    ctx.strokeStyle = colorOf(a.o);
+    ctx.lineWidth = 2;
+    ctx.setLineDash([5, 5]);
+    ctx.beginPath();
+    ctx.moveTo(fx, fy);
+    ctx.lineTo(tx, ty);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    const fs = Math.max(10, Math.floor(cell / 9));
+    const label = UNIT_KINDS.filter((k) => (a.u[k] || 0) >= 0.5).map((k) => Math.floor(a.u[k])).reduce((s, n) => s + n, 0);
+    ctx.fillStyle = colorOf(a.o);
+    ctx.beginPath();
+    ctx.arc(fx, fy, fs * 1.1, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.font = `bold ${fs}px sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('➜' + label, fx, fy);
+  }
 }
 
 /** 지도 칸 안에 "아이콘+수" 를 한 줄로 그린다. right 면 오른쪽 끝에 맞춘다 */
@@ -482,13 +510,28 @@ function drawUnitRow(x, y, fs, u, color, right, maxW) {
   });
 }
 
+/** 이동: 내 땅만 밟고 갈 수 있는 내 땅 전부. 공격: 남의 땅 전부 (길목은 서버가 최단 경로로 정한다) */
 function validTargets() {
   const set = new Set();
   if (!targeting) return set;
-  for (const n of neighborsOf(targeting.from)) {
-    const t = tiles()[n];
-    if (targeting.mode === 'move' && t.owner === ME) set.add(n);
-    if (targeting.mode === 'attack' && t.owner !== ME && (!t.bt || t.bt.att === ME)) set.add(n);
+  const all = tiles();
+  if (targeting.mode === 'attack') {
+    all.forEach((t, i) => {
+      if (t.owner !== ME) set.add(i);
+    });
+    return set;
+  }
+  // 내 땅으로만 이어진 곳 — 너비 우선 탐색
+  const seen = new Set([targeting.from]);
+  const queue = [targeting.from];
+  while (queue.length) {
+    const cur = queue.shift();
+    for (const n of neighborsOf(cur)) {
+      if (seen.has(n) || all[n].owner !== ME) continue;
+      seen.add(n);
+      queue.push(n);
+      set.add(n);
+    }
   }
   return set;
 }
@@ -517,7 +560,7 @@ canvas.addEventListener('click', (e) => {
       renderGame();
       return;
     }
-    toast(targeting.mode === 'attack' ? '인접한 남의 영토를 클릭하세요.' : '인접한 내 영토를 클릭하세요.');
+    toast(targeting.mode === 'attack' ? '남의 영토를 클릭하세요.' : '내 땅으로 이어진 내 영토를 클릭하세요.');
     return;
   }
   selected = idx;
@@ -538,7 +581,7 @@ function renderTargetHint() {
   node.classList.remove('hidden');
   node.classList.toggle('attack', targeting.mode === 'attack');
   node.innerHTML = '';
-  node.appendChild(el('span', '', (targeting.mode === 'attack' ? '⚔️ 공격할' : '➡️ 이동할') + ' 인접 영토를 클릭하세요 (' + (targeting.units === 'all' ? '전부' : '절반') + ')'));
+  node.appendChild(el('span', '', (targeting.mode === 'attack' ? '⚔️ 공격할 영토를 클릭하세요 — 길목의 남의 땅을 차례로 뚫고 갑니다' : '➡️ 이동할 내 영토를 클릭하세요') + ' (' + (targeting.units === 'all' ? '전부' : '절반') + ')'));
   const cancel = el('button', 'small', '취소');
   cancel.addEventListener('click', () => {
     targeting = null;
@@ -819,10 +862,10 @@ function renderTilePane() {
       row.appendChild(mv);
       row.appendChild(at);
       dc.appendChild(row);
-      dc.appendChild(el('div', 'dim', '누른 뒤 지도에서 인접한 영토를 클릭하세요. 이동은 내 땅, 공격은 남의 땅. 점령하려면 보병이 함께 가야 합니다.'));
+      dc.appendChild(el('div', 'dim', `누른 뒤 지도에서 목표 영토를 클릭하세요. 멀어도 됩니다 — 내 땅은 칸당 ${C.MARCH_SEC}초에 지나가고, 길목의 남의 땅은 차례로 싸워 점령하며 나아갑니다. 점령하려면 보병이 함께 가야 합니다.`));
       order[0] = dc;
     } else if (p && p.alive && !g.ended) {
-      order[0] = el('p', 'dim', '이 영토를 치려면 인접한 내 영토를 선택해 "공격" 을 누르세요.');
+      order[0] = el('p', 'dim', '이 영토를 치려면 내 영토를 선택해 "공격" 을 누른 뒤 여기를 클릭하세요.');
     }
     for (const node of order) if (node) wrap.appendChild(node);
   });
