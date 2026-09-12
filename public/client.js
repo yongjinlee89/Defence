@@ -694,10 +694,24 @@ function renderTilePane() {
           live.push(() => (up.disabled = !me() || myCash() < cost));
           row.appendChild(up);
         }
+        // 브라우저 확인창(confirm)은 앱 안 웹뷰·일부 모바일에서 막혀 항상 취소로 처리된다 — 두 번 누르기로 확인한다
         const dm = el('button', 'small', '철거');
         dm.title = `철거하면 부지가 비고 건설비의 ${Math.round(C.DEMOLISH_REFUND * 100)}% 를 돌려받습니다`;
+        let armed = null;
         dm.addEventListener('click', () => {
-          if (confirm(`${def.name}을(를) 철거할까요? 건설비의 ${Math.round(C.DEMOLISH_REFUND * 100)}%만 돌려받습니다.`)) emit('demolish', { idx: selected, slot: i });
+          if (armed) {
+            clearTimeout(armed);
+            armed = null;
+            emit('demolish', { idx: selected, slot: i });
+            return;
+          }
+          dm.textContent = `정말 철거? (${Math.round(C.DEMOLISH_REFUND * 100)}% 환불)`;
+          dm.classList.add('danger');
+          armed = setTimeout(() => {
+            armed = null;
+            dm.textContent = '철거';
+            dm.classList.remove('danger');
+          }, 3000);
         });
         row.appendChild(dm);
       }
