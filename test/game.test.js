@@ -50,17 +50,17 @@ const cap = (g, pid) => g.map.tiles[g.player(pid).capital];
   assert.ok(!g.build('a', ca.idx, 'mg').ok, '부지 6칸이 다 찼다');
   // 수입: 땅 기본 1×3 + 공장 2개 × 등급 3 × 1.5 = 12/초 (수도는 최고 등급)
   assert.strictEqual(ca.yield, 3);
-  assert.ok(Math.abs(g.incomeOf(p) - 12) < 1e-9);
+  assert.ok(Math.abs(g.incomeOf(p) - 13.5) < 1e-9);
   const cash0 = p.cash;
   tick(g, 10);
   // 수입 120, 주둔 보병은 유지비 없음
-  assert.ok(Math.abs(p.cash - (cash0 + 120)) < 0.01, '10초에 120');
+  assert.ok(Math.abs(p.cash - (cash0 + 135)) < 0.01, '10초에 135');
   assert.strictEqual(g.upkeepOf(p), 0, '주둔 보병은 유지비 0');
   ca.units.tank = 2;
   assert.ok(Math.abs(g.upkeepOf(p) - 1) < 1e-9, '전차 2대는 1/초');
   // 돈이 바닥나면 탈영
   p.cash = 0;
-  ca.units.tank = 100; // 유지비 50/초 > 수입 12/초
+  ca.units.tank = 100; // 유지비 50/초 > 수입 13.5/초
   tick(g, 10);
   assert.ok(ca.units.tank < 100 && ca.units.tank > 50, '유지비를 못 내면 병력이 준다');
   ca.units.tank = 0;
@@ -72,7 +72,7 @@ const cap = (g, pid) => g.map.tiles[g.player(pid).capital];
   assert.ok(g.upgrade('a', ca.idx, slot).ok);
   assert.strictEqual(ca.b[slot].lv, 2);
   assert.strictEqual(before - p.cash, 300, '증설 1.5배');
-  assert.ok(Math.abs(g.incomeOf(p) - 16.5) < 1e-9);
+  assert.ok(Math.abs(g.incomeOf(p) - 18) < 1e-9);
   // 타워 증설: 체력 상한·화력 배수 상승, 비용은 타워 건설비 × 1.5^레벨
   const mgSlot = ca.b.findIndex((b) => b.k === 'mg');
   p.cash = 1000;
@@ -99,7 +99,7 @@ const cap = (g, pid) => g.map.tiles[g.player(pid).capital];
   assert.strictEqual(low.yield, 2);
   assert.strictEqual(low.slots, slots0 + 1);
   assert.strictEqual(p.cash, 600);
-  assert.ok(Math.abs(g.incomeOf(p) - (inc0 + 2.5)) < 1e-9, '기본 1 + 공장 1.5 만큼 오른다');
+  assert.ok(Math.abs(g.incomeOf(p) - (inc0 + 3)) < 1e-9, '기본 1.5 + 공장 1.5 만큼 오른다');
   assert.strictEqual(g.upgradeLand('a', low.idx).ok, false, '700 필요');
   p.cash = 700;
   assert.ok(g.upgradeLand('a', low.idx).ok);
@@ -385,7 +385,7 @@ const cap = (g, pid) => g.map.tiles[g.player(pid).capital];
   assert.deepStrictEqual(t.u, { inf: 8 });
   assert.ok(t.b.every((b) => b.hp === undefined), '멀쩡한 타워는 hp 를 안 보낸다');
   assert.ok(s.map.tiles.every((x) => x.units === undefined && x.battle === undefined), '내부 필드는 안 나간다');
-  assert.strictEqual(s.players[0].income, 7.5);
+  assert.strictEqual(s.players[0].income, 9);
   const size = JSON.stringify(s).length;
   assert.ok(size < 8000, `전체 상태가 작다 (${size}B)`);
   console.log(`✓ 공개 상태 (전체 ${size}B)`);

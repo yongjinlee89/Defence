@@ -36,7 +36,7 @@ const TOWER_KINDS = Object.keys(TOWER);
 
 // 경제 건물은 공장 하나. 수입 = INCOME × 땅 등급 × 레벨 (초당)
 const FACTORY = { name: '공장', icon: '🏭', cost: 200, income: 1.5, desc: '초당 돈을 번다. 좋은 땅일수록 더 번다. 3레벨까지 증설.' };
-const LAND_INCOME = 1; // 땅 기본 수입: 초당 0.5 × 땅 등급 (공장 없이도 들어온다 — 영토 자체가 가치)
+const LAND_INCOME = 1.5; // 땅 기본 수입: 초당 1.5 × 땅 등급 (공장 없이도 들어온다 — 영토 자체가 가치)
 const MAX_YIELD = 3;
 const LAND_UPGRADE = { 1: 400, 2: 700 }; // 땅 등급 올리기 비용 (현재 등급 → +1). 등급이 오르면 기본 수입·공장 수입이 오르고 부지가 한 칸 는다
 // 연구 개발. 각 플레이어가 돈으로 산다. unlock 은 1회, 강화는 3레벨까지.
