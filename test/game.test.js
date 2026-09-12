@@ -48,18 +48,19 @@ const cap = (g, pid) => g.map.tiles[g.player(pid).capital];
   assert.ok(g.build('a', ca.idx, 'aa').ok);
   assert.strictEqual(ca.b.length, 6);
   assert.ok(!g.build('a', ca.idx, 'mg').ok, '부지 6칸이 다 찼다');
-  // 수입: 땅 기본 0.3×2 + 공장 2개 × 등급 2 × 2 = 8.6/초
-  assert.ok(Math.abs(g.incomeOf(p) - 8.6) < 1e-9);
+  // 수입: 땅 기본 0.3×3 + 공장 2개 × 등급 3 × 2 = 12.9/초 (수도는 최고 등급)
+  assert.strictEqual(ca.yield, 3);
+  assert.ok(Math.abs(g.incomeOf(p) - 12.9) < 1e-9);
   const cash0 = p.cash;
   tick(g, 10);
   // 수입 80 − 보병 8명 유지비 (8×0.1×10 = 8)
-  assert.ok(Math.abs(p.cash - (cash0 + 86 - 8)) < 0.01, '10초에 86 − 유지비 8');
+  assert.ok(Math.abs(p.cash - (cash0 + 129 - 8)) < 0.01, '10초에 129 − 유지비 8');
   assert.ok(Math.abs(g.upkeepOf(p) - 0.8) < 1e-9);
   // 돈이 바닥나면 탈영
   p.cash = 0;
-  ca.units.inf = 100;
+  ca.units.inf = 200; // 유지비 20/초 > 수입 12.9/초
   tick(g, 10);
-  assert.ok(ca.units.inf < 100 && ca.units.inf > 50, '유지비를 못 내면 병력이 준다');
+  assert.ok(ca.units.inf < 200 && ca.units.inf > 100, '유지비를 못 내면 병력이 준다');
   ca.units.inf = 8;
   p.cash = 1000;
   // 증설
@@ -68,8 +69,26 @@ const cap = (g, pid) => g.map.tiles[g.player(pid).capital];
   assert.ok(g.upgrade('a', ca.idx, slot).ok);
   assert.strictEqual(ca.b[slot].lv, 2);
   assert.strictEqual(before - p.cash, 300, '증설 1.5배');
-  assert.ok(Math.abs(g.incomeOf(p) - 12.6) < 1e-9);
+  assert.ok(Math.abs(g.incomeOf(p) - 18.9) < 1e-9);
   assert.ok(!g.upgrade('a', ca.idx, ca.b.findIndex((b) => b.k === 'mg')).ok, '타워는 증설 불가');
+  // 땅 개발 — 수도는 이미 최고 등급, 등급 1 땅을 뺏어 개발하면 부지 +1, 수입 상승
+  assert.ok(!g.upgradeLand('a', ca.idx).ok, '최고 등급은 더 못 올린다');
+  const low = g.map.tiles.find((t) => !t.owner && t.yield === 1);
+  low.owner = 'a';
+  low.b = [{ k: 'factory', lv: 1 }];
+  p.cash = 1000;
+  const inc0 = g.incomeOf(p);
+  const slots0 = low.slots;
+  assert.ok(g.upgradeLand('a', low.idx).ok);
+  assert.strictEqual(low.yield, 2);
+  assert.strictEqual(low.slots, slots0 + 1);
+  assert.strictEqual(p.cash, 600);
+  assert.ok(Math.abs(g.incomeOf(p) - (inc0 + 2.3)) < 1e-9, '기본 0.3 + 공장 2 만큼 오른다');
+  assert.strictEqual(g.upgradeLand('a', low.idx).ok, false, '700 필요');
+  p.cash = 700;
+  assert.ok(g.upgradeLand('a', low.idx).ok);
+  assert.strictEqual(low.yield, 3);
+  assert.ok(!g.upgradeLand('a', cap(g, 'b').idx).ok, '남의 땅 불가');
   // 철거
   const n = ca.b.length;
   assert.ok(g.demolish('a', ca.idx, ca.b.findIndex((b) => b.k === 'aa')).ok);
@@ -235,7 +254,7 @@ const cap = (g, pid) => g.map.tiles[g.player(pid).capital];
   assert.deepStrictEqual(t.u, { inf: 8 });
   assert.ok(t.b.every((b) => b.hp === undefined), '멀쩡한 타워는 hp 를 안 보낸다');
   assert.ok(s.map.tiles.every((x) => x.units === undefined && x.battle === undefined), '내부 필드는 안 나간다');
-  assert.strictEqual(s.players[0].income, 4.6);
+  assert.strictEqual(s.players[0].income, 6.9);
   const size = JSON.stringify(s).length;
   assert.ok(size < 8000, `전체 상태가 작다 (${size}B)`);
   console.log(`✓ 공개 상태 (전체 ${size}B)`);

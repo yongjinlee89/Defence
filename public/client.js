@@ -562,7 +562,7 @@ function renderTilePane() {
   const t = tiles()[selected];
   const mine = !!p && p.alive && t.owner === ME;
   const bSig = (t.b || []).map((b) => b.k + (b.lv || 1)).join(',');
-  const sig = ['tile', selected, t.owner, bSig, t.slots, t.bt ? t.bt.att : '', mine, p ? p.alive : 0, g.ended].join('|');
+  const sig = ['tile', selected, t.owner, bSig, t.slots, t.y, t.bt ? t.bt.att : '', mine, p ? p.alive : 0, g.ended].join('|');
   renderPane('tile', sig, (live) => {
     wrap.innerHTML = '';
 
@@ -575,6 +575,19 @@ function renderTilePane() {
     h.appendChild(tag);
     head.appendChild(h);
     head.appendChild(el('div', 'dim', `땅 등급 ${'💰'.repeat(t.y)} · 기본 수입 +${C.LAND_INCOME * t.y}/초, 공장 하나당 +${C.FACTORY.income * t.y}/초 · 부지 ${(t.b || []).length}/${t.slots}`));
+    if (mine && !g.ended && t.y < C.MAX_YIELD) {
+      const cost = C.LAND_UPGRADE[t.y];
+      const factories = (t.b || []).filter((b) => b.k === 'factory').reduce((s, b) => s + (b.lv || 1), 0);
+      const gain = C.LAND_INCOME + C.FACTORY.income * factories;
+      const row = el('div', 'row');
+      const up = el('button', 'small', `⛏️ 땅 개발 ${'💰'.repeat(t.y + 1)} — ${fmt(cost)}`);
+      up.title = '등급이 오르면 기본 수입과 이 땅의 모든 공장 수입이 오르고 부지가 한 칸 늘어납니다.';
+      up.addEventListener('click', () => emit('upgradeLand', { idx: selected }));
+      live.push(() => (up.disabled = !me() || me().cash < cost || !!tiles()[selected].bt));
+      row.appendChild(up);
+      row.appendChild(el('span', 'dim', `수입 +${fmt1(gain)}/초, 부지 +1`));
+      head.appendChild(row);
+    }
     const raid = el('div', '');
     raid.style.color = '#fca5a5';
     live.push(() => {
@@ -935,7 +948,7 @@ function renderHelpPane() {
     for (const [k, d] of Object.entries(C.UNIT)) add(`<span class="k">${ic(k)} ${d.name}</span> 💰${d.cost} · 체력 ${d.hp} · 공격 ${d.dps}/초<br><span class="dim">${d.desc}</span>`);
     for (const [k, d] of Object.entries(C.TOWER)) add(`<span class="k">${ic(k)} ${d.name}</span> 💰${d.cost} · 체력 ${d.hp} · 공격 ${d.dps}/초<br><span class="dim">${d.desc} 수비할 때만 싸우고, 부지를 한 칸 씁니다.</span>`);
     add(`<span class="k">${ic('factory')} ${C.FACTORY.name}</span> 💰${C.FACTORY.cost} · 초당 ${C.FACTORY.income}×땅 등급×레벨<br><span class="dim">${C.FACTORY.desc}</span>`);
-    add(`<span class="k">🚩 땅</span> 공장이 없어도 초당 ${C.LAND_INCOME}×땅 등급을 법니다. 영토를 넓히는 것만으로 수입이 늘지만, ${C.RAID_PER_LAND}칸마다 습격 지점이 하나씩 늘어납니다.`);
+    add(`<span class="k">🚩 땅</span> 등급(💰 1~3)이 높을수록 기본 수입과 공장 수입이 높고 부지가 많습니다. 돈을 들여 등급을 올릴 수 있습니다 (${C.LAND_UPGRADE[1]} → ${C.LAND_UPGRADE[2]}). 공장이 없어도 초당 ${C.LAND_INCOME}×등급을 법니다. 영토를 넓히는 것만으로 수입이 늘지만, ${C.RAID_PER_LAND}칸마다 습격 지점이 하나씩 늘어납니다.`);
     add(`<span class="k">💸 유지비</span><br><span class="dim">병력은 초당 가격의 ${C.UPKEEP * 100}% 를 유지비로 씁니다 (보병 ${C.UNIT.inf.cost * C.UPKEEP}, 전차 ${C.UNIT.tank.cost * C.UPKEEP}, 항공기 ${C.UNIT.air.cost * C.UPKEEP}). 돈이 바닥나면 병력이 흩어집니다.</span>`);
     add('<span class="k">💡 요령</span><br><span class="dim">· 습격은 12초 전에 예고됩니다. 옆 땅의 병력을 옮겨 막으세요.<br>· 점령하면 상대 공장을 그대로 가져옵니다. 타워는 전투에서 부서집니다.<br>· 타워는 병력보다 싸고 튼튼하지만 움직이지 못하고 부지를 씁니다.<br>· 땅이 많을수록 약탈대도 커집니다. 넓힌 만큼 지키세요.</span>');
     wrap.appendChild(list);

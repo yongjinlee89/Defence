@@ -52,6 +52,11 @@ function think(game, pid) {
       break;
     }
   }
+  // 땅 개발 — 공장이 둘 이상 있는 땅부터 (등급이 오르면 그 공장들이 다 같이 더 번다)
+  if (p.cash > 900) {
+    const t = land.filter((x) => x.yield < 3 && !x.battle && x.b.filter((b) => b.k === 'factory').length >= 2).sort((a, b) => b.b.length - a.b.length)[0];
+    if (t && game.upgradeLand(pid, t.idx).ok) changed = true;
+  }
   // 공장 증설 — 돈이 넉넉할 때
   if (p.cash > 700) {
     for (const t of land) {

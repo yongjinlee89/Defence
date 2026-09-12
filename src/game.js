@@ -37,6 +37,8 @@ const TOWER_KINDS = Object.keys(TOWER);
 // 경제 건물은 공장 하나. 수입 = INCOME × 땅 등급 × 레벨 (초당)
 const FACTORY = { name: '공장', icon: '🏭', cost: 200, income: 2, desc: '초당 돈을 번다. 좋은 땅일수록 더 번다. 3레벨까지 증설.' };
 const LAND_INCOME = 0.3; // 땅 기본 수입: 초당 0.5 × 땅 등급 (공장 없이도 들어온다 — 영토 자체가 가치)
+const MAX_YIELD = 3;
+const LAND_UPGRADE = { 1: 400, 2: 700 }; // 땅 등급 올리기 비용 (현재 등급 → +1). 등급이 오르면 기본 수입·공장 수입이 오르고 부지가 한 칸 는다
 const MAX_LEVEL = 3;
 const UPGRADE_MULT = 1.5; // 레벨업 비용 = 건설비 × 1.5^(현재 레벨) — 새로 짓는 것보다 조금 비싸지만 부지를 아낀다
 const LAND_VALUE = 300; // 순자산에 더하는 땅 한 칸의 가치
@@ -145,7 +147,7 @@ class Game {
     this.players.forEach((p, i) => {
       const [x, y] = spots[i];
       const t = this.tileAt(x, y);
-      t.yield = 2;
+      t.yield = MAX_YIELD; // 시작 땅은 모두 최고 등급 — 공평하게, 돈 잘 벌리는 곳에서 출발
       t.slots = 6;
       t.owner = p.id;
       t.capital = true;
@@ -257,6 +259,22 @@ class Game {
     if (p.cash < cost) return { ok: false, error: '돈이 부족합니다.' };
     p.cash -= cost;
     b.lv++;
+    return { ok: true };
+  }
+
+  /** 땅 등급 올리기 — 그 땅의 기본 수입·모든 공장 수입이 등급 비례로 오르고 부지가 한 칸 는다 */
+  upgradeLand(pid, idx) {
+    if (this.ended) return { ok: false, error: '게임이 끝났습니다.' };
+    const r = this.ownedTile(pid, idx);
+    if (r.error) return { ok: false, error: r.error };
+    const { p, t } = r;
+    if (t.yield >= MAX_YIELD) return { ok: false, error: '최고 등급 땅입니다.' };
+    if (t.battle) return { ok: false, error: '전투 중에는 개발할 수 없습니다.' };
+    const cost = LAND_UPGRADE[t.yield];
+    if (p.cash < cost) return { ok: false, error: '돈이 부족합니다.' };
+    p.cash -= cost;
+    t.yield++;
+    t.slots++;
     return { ok: true };
   }
 
@@ -623,7 +641,7 @@ class Game {
         capital: p.capital,
       })),
       // 상수는 게임 중 안 바뀌므로 첫 전송 뒤에는 diff 에서 빠진다
-      constants: { UNIT, TOWER, FACTORY, LAND_INCOME, MULT, MAX_LEVEL, UPGRADE_MULT, WAVE_SEC, WAVE_WARN, RAID_PER_LAND, DEMOLISH_REFUND, UPKEEP },
+      constants: { UNIT, TOWER, FACTORY, LAND_INCOME, LAND_UPGRADE, MAX_YIELD, MULT, MAX_LEVEL, UPGRADE_MULT, WAVE_SEC, WAVE_WARN, RAID_PER_LAND, DEMOLISH_REFUND, UPKEEP },
     };
   }
 }
