@@ -174,7 +174,7 @@ class Room {
       connected.map((p) => ({ id: p.id, name: p.name })),
       { ...this.settings }
     );
-    this.game.pushLog(`게임 시작! 시작 자금 ${this.settings.startCash}, 제한 시간 ${Math.round(this.settings.duration / 60)}분. 부지에 건물을 짓고 병력을 모아 영토를 넓히세요.`);
+    this.game.pushLog(`게임 시작! 시작 자금 ${this.settings.startCash}, 제한 시간 ${Math.round(this.settings.duration / 60)}분. 공장으로 돈을 벌고, 타워와 병력으로 지키고, 이웃을 쳐서 영토를 넓히세요.`);
     this.startLoop();
     this.touch();
     return { ok: true };

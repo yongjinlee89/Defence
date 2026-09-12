@@ -32,7 +32,7 @@ function trial(r, towers, units) {
   const t2 = new Game([{ id: 'a', name: 'a' }, { id: 'b', name: 'b' }], { seed: 1 });
   const t = t2.map.tiles[t2.player('a').capital];
   t.b = towers.map((k) => ({ k, hp: TOWER[k].hp }));
-  t.units = { inf: 0, tank: 0, arty: 0, air: 0, ...units };
+  t.units = { inf: 0, tank: 0, air: 0, ...units };
   t.battle = { att: 'npc', from: null, A: Game.raidForce(r), t: 0 };
   for (let i = 0; i < 800; i++) {
     t2.tick(0.25);
@@ -45,10 +45,10 @@ const templates = [
   ['B +포탑', ['mg', 'mg', 'cannon'], { inf: 8 }],
   ['C +포탑+대공포+전차2', ['mg', 'mg', 'cannon', 'aa'], { inf: 8, tank: 2 }],
   ['D 보병10 전차4', ['mg', 'mg', 'cannon', 'aa'], { inf: 10, tank: 4 }],
-  ['E 포탑2 보병15 전차6 포병3', ['mg', 'mg', 'cannon', 'cannon', 'aa'], { inf: 15, tank: 6, arty: 3 }],
+  ['E 포탑2 보병15 전차6 항공기2', ['mg', 'mg', 'cannon', 'cannon', 'aa'], { inf: 15, tank: 6, air: 2 }],
 ];
 for (const [n] of templates) console.log('  ' + n);
 for (const r of [1, 2, 3, 4, 5, 6, 8, 10, 12, 14]) {
   const f = Game.raidForce(r);
-  console.log(`  r${String(r).padStart(2)} (보${f.inf} 전${f.tank} 포${f.arty} 공${f.air}): ` + templates.map(([n, tw, u]) => n[0] + (trial(r, tw, u) ? 'O' : 'X')).join(' '));
+  console.log(`  r${String(r).padStart(2)} (보${f.inf} 전${f.tank} 공${f.air}): ` + templates.map(([n, tw, u]) => n[0] + (trial(r, tw, u) ? 'O' : 'X')).join(' '));
 }

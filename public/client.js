@@ -33,13 +33,13 @@ let S = null; // 서버 상태
 let C = null; // 게임 상수 (S.game.constants)
 let joined = false;
 let selected = null; // 선택한 영토 idx
-let targeting = null; // { mode: 'move'|'attack', from, units }
+let targeting = null; // { mode: 'move'|'attack', from, units: 'all'|'half' }
+let sendMode = 'all'; // 출정 시 보낼 양
 let activeTab = 'tile';
 let lastStateAt = Date.now();
 let resultDismissed = false;
 
-const UNIT_KINDS = ['inf', 'tank', 'arty', 'air'];
-const MAT_KINDS = ['iron', 'oil', 'food', 'parts'];
+const UNIT_KINDS = ['inf', 'tank', 'air'];
 
 /* ================================================================== 입장 */
 
@@ -177,6 +177,7 @@ function nameOf(id) {
   return p ? (isBotId(id) ? '🤖 ' : '') + p.name : '중립';
 }
 function colorOf(id) {
+  if (id === 'npc') return '#f97316';
   const p = playerOf(id);
   return p ? p.color : '#555b6a';
 }
@@ -199,25 +200,15 @@ function neighborsOf(idx) {
 }
 function unitsOf(t) {
   const u = t.u || {};
-  return { inf: u.inf || 0, tank: u.tank || 0, arty: u.arty || 0, air: u.air || 0 };
+  return { inf: u.inf || 0, tank: u.tank || 0, air: u.air || 0 };
 }
 function unitsText(u) {
   const parts = [];
-  for (const k of UNIT_KINDS) if ((u[k] || 0) >= 1 || (u[k] || 0) > 0.05) parts.push(C.UNIT[k].icon + fmt1(u[k]));
+  for (const k of UNIT_KINDS) if ((u[k] || 0) > 0.05) parts.push(C.UNIT[k].icon + fmt1(u[k]));
   return parts.join(' ') || '없음';
 }
-function costText(cost) {
-  const parts = [];
-  if (cost.cash) parts.push('💰' + fmt(cost.cash));
-  for (const m of MAT_KINDS) if (cost[m]) parts.push(C.MATERIALS[m].icon + cost[m]);
-  return parts.join(' ');
-}
-function canAfford(cost, times = 1) {
-  const p = me();
-  if (!p) return false;
-  if (p.cash < (cost.cash || 0) * times) return false;
-  for (const m of MAT_KINDS) if (cost[m] && p.inv[m] < cost[m] * times) return false;
-  return true;
+function defOf(k) {
+  return k === 'factory' ? C.FACTORY : C.TOWER[k];
 }
 /** 마지막 상태 수신 뒤 흐른 시간을 더한 "지금" 경과 시간 */
 function nowElapsed() {
@@ -291,7 +282,7 @@ $('#lobby-leave').addEventListener('click', () => {
 
 /* ------------------------------------------------------------------ 화면 조각 (부분 갱신) */
 
-// 구조가 바뀌지 않으면 DOM 을 다시 만들지 않는다 — 입력칸·버튼 클릭이 씹히지 않게
+// 구조가 바뀌지 않으면 DOM 을 다시 만들지 않는다 — 버튼 클릭이 씹히지 않게
 const panes = {};
 function renderPane(name, sig, build) {
   if (!panes[name]) panes[name] = { sig: null, live: [] };
@@ -324,16 +315,7 @@ function renderHud() {
   const p = me();
   $('#hud-timer').textContent = '⏱ ' + mmss(g.duration - nowElapsed());
   renderWave();
-  const inv = $('#hud-inv');
-  inv.innerHTML = '';
-  if (p) {
-    for (const m of MAT_KINDS) {
-      const span = el('span');
-      span.innerHTML = `${C.MATERIALS[m].icon} <b>${fmt1(p.inv[m])}</b>`;
-      span.title = C.MATERIALS[m].name;
-      inv.appendChild(span);
-    }
-  }
+  $('#hud-income').innerHTML = p ? `수입 <b>+${fmt1(p.income)}/초</b> <span class="dim">유지비 −${fmt1(p.upkeep)}/초</span>` : '';
   $('#hud-land').textContent = p ? `🚩 ${p.land}칸` : '';
   $('#hud-cash').textContent = p ? `💰 ${fmt(p.cash)}` : '관전';
   $('#time-fill').style.width = `${Math.max(0, 100 - (nowElapsed() / g.duration) * 100)}%`;
@@ -348,7 +330,7 @@ function renderWave() {
   node.classList.toggle('soon', warned);
 }
 
-// 시계·습격 카운트다운은 서버가 초마다 보내지 않아도 여기서 이어 깎는다
+// 시계·습격 카운트다운·돈은 서버가 초마다 보내지 않아도 여기서 이어 깎는다
 setInterval(() => {
   if (!S || S.phase !== 'playing' || !S.game) return;
   $('#hud-timer').textContent = '⏱ ' + mmss(S.game.duration - nowElapsed());
@@ -370,6 +352,16 @@ function mapGeometry() {
   return { cell, w: cell * g.map.w, h: cell * g.map.h };
 }
 
+function roundRect(c, x, y, w, h, r) {
+  c.beginPath();
+  c.moveTo(x + r, y);
+  c.arcTo(x + w, y, x + w, y + h, r);
+  c.arcTo(x + w, y + h, x, y + h, r);
+  c.arcTo(x, y + h, x, y, r);
+  c.arcTo(x, y, x + w, y, r);
+  c.closePath();
+}
+
 function drawMap() {
   const g = S.game;
   const geo = mapGeometry();
@@ -386,93 +378,69 @@ function drawMap() {
   const cell = geo.cell;
   const gap = 3;
   const targets = targeting ? validTargets() : null;
-  const p = me();
 
   tiles().forEach((t, idx) => {
     const { x, y } = xyOf(idx);
     const px = x * cell + gap;
     const py = y * cell + gap;
     const size = cell - gap * 2;
-    // 바탕
     ctx.fillStyle = t.owner ? colorOf(t.owner) : '#2a2f3a';
     ctx.globalAlpha = t.owner ? 0.42 : 1;
-    roundRect(px, py, size, size, 8);
+    roundRect(ctx, px, py, size, size, 8);
     ctx.fill();
     ctx.globalAlpha = 1;
     if (t.bt) {
-      // 전투 중 — 공격자 색 빗금 느낌으로 테두리를 굵게
-      ctx.strokeStyle = t.bt.att === 'npc' ? '#f97316' : colorOf(t.bt.att);
+      ctx.strokeStyle = colorOf(t.bt.att);
       ctx.lineWidth = 3;
-      roundRect(px + 1.5, py + 1.5, size - 3, size - 3, 7);
+      roundRect(ctx, px + 1.5, py + 1.5, size - 3, size - 3, 7);
       ctx.stroke();
     }
-    // 테두리 (선택 / 타깃)
     if (targets && targets.has(idx)) {
       ctx.strokeStyle = targeting.mode === 'attack' ? '#ef4444' : '#22c55e';
       ctx.lineWidth = 3;
       ctx.setLineDash([6, 4]);
-      roundRect(px + 1.5, py + 1.5, size - 3, size - 3, 7);
+      roundRect(ctx, px + 1.5, py + 1.5, size - 3, size - 3, 7);
       ctx.stroke();
       ctx.setLineDash([]);
     }
     if (idx === selected) {
       ctx.strokeStyle = '#ffd866';
       ctx.lineWidth = 3;
-      roundRect(px + 1.5, py + 1.5, size - 3, size - 3, 7);
+      roundRect(ctx, px + 1.5, py + 1.5, size - 3, size - 3, 7);
       ctx.stroke();
     }
     const fs = Math.max(10, Math.floor(cell / 9));
     ctx.textBaseline = 'top';
     ctx.textAlign = 'left';
-    // 이름 + 수도/자원
     ctx.fillStyle = '#e8eaf0';
     ctx.font = `bold ${fs}px sans-serif`;
     ctx.fillText((t.cap ? '★ ' : '') + t.n, px + 6, py + 5);
+    // 땅 등급 (💰 개수) + 습격 예고
     ctx.textAlign = 'right';
     ctx.font = `${fs}px sans-serif`;
-    let res = t.res ? C.MATERIALS[t.res].icon + (t.rich > 1 ? '×2' : '') : '';
-    if (g.raids && g.raids[idx]) res = '⚠️ ' + res;
-    ctx.fillText(res, px + size - 6, py + 5);
+    ctx.fillText((g.raids && g.raids[idx] ? '⚠️ ' : '') + '💰'.repeat(t.y), px + size - 6, py + 5);
     // 건물 아이콘
     ctx.textAlign = 'left';
-    const icons = (t.b || []).map((b) => (C.ECON[b.k] || C.TOWER[b.k]).icon).join('');
     ctx.font = `${Math.floor(fs * 1.1)}px sans-serif`;
-    ctx.fillText(icons, px + 6, py + 6 + fs * 1.4);
-    // 빈 부지
-    const free = t.slots - (t.b || []).length;
+    ctx.fillText((t.b || []).map((b) => defOf(b.k).icon).join(''), px + 6, py + 6 + fs * 1.4);
     ctx.fillStyle = '#9aa1b0';
     ctx.font = `${Math.floor(fs * 0.9)}px sans-serif`;
     ctx.textAlign = 'right';
-    ctx.fillText(`빈 ${free}`, px + size - 6, py + 6 + fs * 1.5);
+    ctx.fillText(`빈 ${t.slots - (t.b || []).length}`, px + size - 6, py + 6 + fs * 1.5);
     // 병력
     ctx.textAlign = 'left';
     ctx.fillStyle = '#e8eaf0';
     ctx.font = `${fs}px sans-serif`;
     const u = unitsOf(t);
-    const uTxt = UNIT_KINDS.filter((k) => u[k] >= 0.5).map((k) => C.UNIT[k].icon + Math.floor(u[k])).join(' ');
-    ctx.fillText(uTxt, px + 6, py + size - fs - 6);
-    // 전투 표시
+    ctx.fillText(UNIT_KINDS.filter((k) => u[k] >= 0.5).map((k) => C.UNIT[k].icon + Math.floor(u[k])).join(' '), px + 6, py + size - fs - 6);
     if (t.bt) {
       ctx.textAlign = 'right';
       ctx.fillStyle = '#fca5a5';
       ctx.font = `bold ${fs}px sans-serif`;
       const a = t.bt.A || {};
-      const aTxt = UNIT_KINDS.filter((k) => (a[k] || 0) >= 0.5).map((k) => C.UNIT[k].icon + Math.floor(a[k])).join(' ');
-      ctx.fillText('⚔️ ' + aTxt, px + size - 6, py + size - fs - 6);
+      ctx.fillText('⚔️ ' + UNIT_KINDS.filter((k) => (a[k] || 0) >= 0.5).map((k) => C.UNIT[k].icon + Math.floor(a[k])).join(' '), px + size - 6, py + size - fs - 6);
     }
   });
-  // 내 수도 없으면(관전) 아무것도 안 함
-  void p;
-}
-
-function roundRect(x, y, w, h, r) {
-  ctx.beginPath();
-  ctx.moveTo(x + r, y);
-  ctx.arcTo(x + w, y, x + w, y + h, r);
-  ctx.arcTo(x + w, y + h, x, y + h, r);
-  ctx.arcTo(x, y + h, x, y, r);
-  ctx.arcTo(x, y, x + w, y, r);
-  ctx.closePath();
 }
 
 function validTargets() {
@@ -531,7 +499,7 @@ function renderTargetHint() {
   node.classList.remove('hidden');
   node.classList.toggle('attack', targeting.mode === 'attack');
   node.innerHTML = '';
-  node.appendChild(el('span', '', (targeting.mode === 'attack' ? '⚔️ 공격할' : '➡️ 이동할') + ' 인접 영토를 클릭하세요 — ' + unitsText(targeting.units)));
+  node.appendChild(el('span', '', (targeting.mode === 'attack' ? '⚔️ 공격할' : '➡️ 이동할') + ' 인접 영토를 클릭하세요 (' + (targeting.units === 'all' ? '전부' : '절반') + ')'));
   const cancel = el('button', 'small', '취소');
   cancel.addEventListener('click', () => {
     targeting = null;
@@ -556,7 +524,6 @@ function setTab(name) {
 
 function renderTab() {
   if (activeTab === 'tile') renderTilePane();
-  else if (activeTab === 'market') renderMarketPane();
   else if (activeTab === 'rank') renderRankPane();
   else if (activeTab === 'help') renderHelpPane();
   else if (activeTab === 'log') renderLogPane();
@@ -590,24 +557,26 @@ function renderTilePane() {
     tag.style.background = t.owner ? colorOf(t.owner) : '#555b6a';
     h.appendChild(tag);
     head.appendChild(h);
-    const info = el('div', 'dim');
-    info.textContent = `${t.res ? `${C.MATERIALS[t.res].icon} ${C.MATERIALS[t.res].name} 땅${t.rich > 1 ? ' (풍부 ×2)' : ''}` : '자원 없음'} · 부지 ${(t.b || []).length}/${t.slots}`;
-    head.appendChild(info);
+    head.appendChild(el('div', 'dim', `땅 등급 ${'💰'.repeat(t.y)} (공장 하나당 +${C.FACTORY.income * t.y}/초) · 부지 ${(t.b || []).length}/${t.slots}`));
     const raid = el('div', '');
+    raid.style.color = '#fca5a5';
     live.push(() => {
-      const tt = tiles()[selected];
       const pid = S.game.raids && S.game.raids[selected];
       raid.textContent = pid ? `⚠️ 약탈대가 이 영토를 노리고 있습니다! (${mmss(S.game.nextWave - nowElapsed())} 뒤)` : '';
-      raid.style.color = '#fca5a5';
-      void tt;
     });
     head.appendChild(raid);
     wrap.appendChild(head);
 
-    // 전투
+    // 전투 장면
     if (t.bt) {
       const bc = el('div', 'card battle');
-      bc.appendChild(el('h3', '', '⚔️ 전투 중'));
+      const bh = el('h3');
+      bh.appendChild(el('span', '', '⚔️ 전투 중'));
+      const elapsed = el('span', 'dim');
+      bh.appendChild(elapsed);
+      bc.appendChild(bh);
+      const scene = el('canvas', 'battle-scene');
+      bc.appendChild(scene);
       const bar = el('div', 'battle-bar');
       const aFill = el('div', 'a');
       const dFill = el('div', 'd');
@@ -620,8 +589,7 @@ function renderTilePane() {
       sides.appendChild(aBox);
       sides.appendChild(dBox);
       bc.appendChild(sides);
-      const elapsed = el('div', 'dim');
-      bc.appendChild(elapsed);
+      startBattleAnim(scene, selected);
       live.push(() => {
         const tt = tiles()[selected];
         if (!tt.bt) return;
@@ -635,39 +603,41 @@ function renderTilePane() {
         dFill.style.width = `${(dp / tot) * 100}%`;
         aBox.innerHTML = `<b style="color:#fca5a5">공격 ${nameOf(tt.bt.att)}</b><br>${unitsText(A)}`;
         dBox.innerHTML = `<b style="color:#93c5fd">수비 ${tt.owner ? nameOf(tt.owner) : '중립'}</b><br>${unitsText(D)}${towers.length ? '<br>' + towers.map((b) => C.TOWER[b.k].icon).join('') : ''}`;
-        elapsed.textContent = `경과 ${tt.bt.t}초 · 전투 중인 영토에도 병력을 보내 증원할 수 있습니다.`;
+        elapsed.textContent = `${tt.bt.t}초`;
       });
       if (t.bt.att === ME) {
         const rt = el('button', 'danger', '🏳️ 후퇴 (생존 병력을 출발지로)');
         rt.addEventListener('click', () => emit('retreat', { idx: selected }));
         bc.appendChild(rt);
+      } else if (mine) {
+        bc.appendChild(el('div', 'dim', '인접한 내 땅에서 이 영토로 "이동" 하면 수비에 합류합니다.'));
       }
       wrap.appendChild(bc);
+    } else {
+      stopBattleAnim();
     }
 
-    // 건물
+    // 부지
     const bc = el('div', 'card');
     bc.appendChild(el('h3', '', '🏗️ 부지'));
     const list = el('div', 'slot-list');
     (t.b || []).forEach((b, i) => {
-      const def = C.ECON[b.k] || C.TOWER[b.k];
+      const def = defOf(b.k);
       const row = el('div', 'slot');
       row.appendChild(el('span', '', def.icon));
-      const name = el('span', 'name', def.name + (C.ECON[b.k] ? ` Lv${b.lv || 1}` : ''));
-      row.appendChild(name);
-      if (C.TOWER[b.k]) {
+      row.appendChild(el('span', 'name', def.name + (b.k === 'factory' ? ` Lv${b.lv || 1}` : '')));
+      if (b.k === 'factory') row.appendChild(el('span', 'hp', `+${C.FACTORY.income * t.y * (b.lv || 1)}/초`));
+      else {
         const hp = el('span', 'hp');
         live.push(() => {
           const bb = (tiles()[selected].b || [])[i];
           if (bb) hp.textContent = `${bb.hp !== undefined ? Math.round(bb.hp) : C.TOWER[b.k].hp}/${C.TOWER[b.k].hp}`;
         });
         row.appendChild(hp);
-      } else {
-        row.appendChild(el('span', 'hp', econRateText(b, t)));
       }
       if (mine && !g.ended) {
-        if (C.ECON[b.k] && (b.lv || 1) < C.MAX_LEVEL) {
-          const cost = Math.round(def.cost.cash * Math.pow(C.UPGRADE_MULT, b.lv || 1));
+        if (b.k === 'factory' && (b.lv || 1) < C.MAX_LEVEL) {
+          const cost = Math.round(C.FACTORY.cost * Math.pow(C.UPGRADE_MULT, b.lv || 1));
           const up = el('button', 'small', `증설 💰${fmt(cost)}`);
           up.addEventListener('click', () => emit('upgrade', { idx: selected, slot: i }));
           live.push(() => (up.disabled = !me() || me().cash < cost));
@@ -684,18 +654,14 @@ function renderTilePane() {
     });
     for (let i = (t.b || []).length; i < t.slots; i++) list.appendChild(el('div', 'slot empty', '빈 부지'));
     bc.appendChild(list);
-
     if (mine && !g.ended && (t.b || []).length < t.slots) {
-      bc.appendChild(el('h4', '', '건설 — 경제 건물은 돈을 벌고, 타워는 지킵니다'));
       const grid = el('div', 'build-grid');
-      for (const [k, def] of [...Object.entries(C.ECON), ...Object.entries(C.TOWER)]) {
-        if (def.res && def.res !== t.res) continue;
+      for (const [k, def] of [['factory', C.FACTORY], ...Object.entries(C.TOWER)]) {
         const btn = el('button');
-        btn.appendChild(el('span', '', `${def.icon} ${def.name}`));
-        btn.appendChild(el('span', 'cost', costText(def.cost)));
-        btn.title = def.desc;
+        btn.appendChild(el('span', '', `${def.icon} ${def.name} 💰${def.cost}`));
+        btn.appendChild(el('span', 'cost', k === 'factory' ? `+${def.income * t.y}/초` : def.desc));
         btn.addEventListener('click', () => emit('build', { idx: selected, kind: k }));
-        live.push(() => (btn.disabled = !canAfford(def.cost)));
+        live.push(() => (btn.disabled = !me() || me().cash < def.cost));
         grid.appendChild(btn);
       }
       bc.appendChild(grid);
@@ -704,7 +670,7 @@ function renderTilePane() {
 
     // 병력
     const uc = el('div', 'card');
-    uc.appendChild(el('h3', '', mine ? '🪖 주둔 병력 · 훈련' : '🪖 주둔 병력'));
+    uc.appendChild(el('h3', '', mine ? '🪖 병력 · 훈련' : '🪖 병력'));
     for (const k of UNIT_KINDS) {
       const def = C.UNIT[k];
       const row = el('div', 'unit-row');
@@ -718,12 +684,12 @@ function renderTilePane() {
         for (const q of [1, 5, 10]) {
           const b = el('button', 'small', `+${q}`);
           b.addEventListener('click', () => emit('train', { idx: selected, unit: k, qty: q }));
-          live.push(() => (b.disabled = !canAfford(def.cost, q)));
+          live.push(() => (b.disabled = !me() || me().cash < def.cost * q));
           row.appendChild(b);
         }
-        row.appendChild(el('span', 'cost', `1기당 ${costText(def.cost)} · 체력 ${def.hp} 공격 ${def.dps}/초`));
+        row.appendChild(el('span', 'cost', `💰${def.cost} · ${def.desc}`));
       } else {
-        row.appendChild(el('span', 'dim', `체력 ${def.hp}`));
+        row.appendChild(el('span', 'dim', def.desc));
         row.appendChild(el('span'));
         row.appendChild(el('span'));
       }
@@ -731,68 +697,37 @@ function renderTilePane() {
     }
     wrap.appendChild(uc);
 
-    // 이동/공격
+    // 출정
     if (mine && !g.ended) {
       const dc = el('div', 'card');
       dc.appendChild(el('h3', '', '🎯 출정'));
-      dc.appendChild(el('div', 'dim', '보낼 수를 정한 뒤 이동(내 땅) 또는 공격(남의 땅)을 누르고 지도에서 인접 영토를 클릭하세요.'));
-      const grid = el('div', 'pick-grid');
-      const inputs = {};
-      for (const k of UNIT_KINDS) {
-        const lab = el('label', '', `${C.UNIT[k].icon} ${C.UNIT[k].name}`);
-        const inp = el('input');
-        inp.type = 'number';
-        inp.min = 0;
-        inp.value = Math.floor(unitsOf(t)[k]);
-        inputs[k] = inp;
-        lab.appendChild(inp);
-        grid.appendChild(lab);
-        // 병력이 늘면 상한만 올린다 — 사용자가 적은 값을 지우지 않는다
-        live.push(() => {
-          const have = Math.floor(unitsOf(tiles()[selected])[k]);
-          inp.max = have;
-          if (Number(inp.value) > have) inp.value = have;
-        });
-      }
-      dc.appendChild(grid);
       const row = el('div', 'row');
-      const all = el('button', 'small', '전부');
-      all.addEventListener('click', () => {
-        for (const k of UNIT_KINDS) inputs[k].value = Math.floor(unitsOf(tiles()[selected])[k]);
-      });
-      const half = el('button', 'small', '절반');
-      half.addEventListener('click', () => {
-        for (const k of UNIT_KINDS) inputs[k].value = Math.floor(unitsOf(tiles()[selected])[k] / 2);
-      });
-      const pick = () => {
-        const u = {};
-        let any = false;
-        for (const k of UNIT_KINDS) {
-          u[k] = Math.max(0, Math.floor(Number(inputs[k].value) || 0));
-          if (u[k] > 0) any = true;
-        }
-        return any ? u : null;
+      const modeAll = el('button', 'small' + (sendMode === 'all' ? ' on' : ''), '전부');
+      const modeHalf = el('button', 'small' + (sendMode === 'half' ? ' on' : ''), '절반');
+      const setMode = (m) => {
+        sendMode = m;
+        modeAll.classList.toggle('on', m === 'all');
+        modeHalf.classList.toggle('on', m === 'half');
       };
+      modeAll.addEventListener('click', () => setMode('all'));
+      modeHalf.addEventListener('click', () => setMode('half'));
       const mv = el('button', 'primary', '➡️ 이동');
       mv.addEventListener('click', () => {
-        const u = pick();
-        if (!u) return toast('보낼 병력을 정하세요.');
-        targeting = { mode: 'move', from: selected, units: u };
+        targeting = { mode: 'move', from: selected, units: sendMode };
         renderGame();
       });
       const at = el('button', 'danger', '⚔️ 공격');
       at.addEventListener('click', () => {
-        const u = pick();
-        if (!u) return toast('보낼 병력을 정하세요.');
-        targeting = { mode: 'attack', from: selected, units: u };
+        targeting = { mode: 'attack', from: selected, units: sendMode };
         renderGame();
       });
-      row.appendChild(all);
-      row.appendChild(half);
+      row.appendChild(modeAll);
+      row.appendChild(modeHalf);
       row.appendChild(el('span', 'grow'));
       row.appendChild(mv);
       row.appendChild(at);
       dc.appendChild(row);
+      dc.appendChild(el('div', 'dim', '누른 뒤 지도에서 인접한 영토를 클릭하세요. 이동은 내 땅, 공격은 남의 땅.'));
       wrap.appendChild(dc);
     } else if (p && p.alive && !g.ended) {
       wrap.appendChild(el('p', 'dim', '이 영토를 치려면 인접한 내 영토를 선택해 "공격" 을 누르세요.'));
@@ -800,72 +735,142 @@ function renderTilePane() {
   });
 }
 
-function econRateText(b, t) {
-  const def = C.ECON[b.k];
-  const lv = b.lv || 1;
-  if (def.res) return `+${fmt1(def.rate * (t.rich || 1) * lv)}/초`;
-  if (def.income) return `+💰${fmt1(def.income * lv)}/초`;
-  if (def.out) return `⚙️+${fmt1(def.out.parts * lv)}/초`;
-  return '';
+/* ------------------------------------------------------------------ 전투 장면 (브라우저가 그리는 연출 — 서버 트래픽 0) */
+
+let anim = null;
+
+function startBattleAnim(scene, idx) {
+  stopBattleAnim();
+  anim = { scene, idx, sprites: { A: {}, D: {} }, shots: [], last: performance.now(), raf: 0 };
+  const loop = (now) => {
+    if (!anim || anim.scene !== scene) return;
+    const dt = Math.min(0.05, (now - anim.last) / 1000);
+    anim.last = now;
+    stepBattleAnim(dt);
+    drawBattleAnim();
+    anim.raf = requestAnimationFrame(loop);
+  };
+  anim.raf = requestAnimationFrame(loop);
+}
+function stopBattleAnim() {
+  if (anim) cancelAnimationFrame(anim.raf);
+  anim = null;
 }
 
-/* ------------------------------------------------------------------ 시장 */
-
-function renderMarketPane() {
-  const wrap = $('#tab-market');
-  const p = me();
-  const g = S.game;
-  const sig = ['mkt', p ? MAT_KINDS.map((m) => (p.autoSell[m] ? 1 : 0)).join('') : 'x', p ? p.alive : 0, g.ended].join('|');
-  renderPane('market', sig, (live) => {
-    wrap.innerHTML = '';
-    wrap.appendChild(el('p', 'dim', `사면 오르고 팔면 내립니다. 거래 수수료 ${Math.round(C.SPREAD * 100)}%. 시간이 지나면 기준가로 돌아옵니다.`));
-    for (const m of MAT_KINDS) {
-      const def = C.MATERIALS[m];
-      const card = el('div', 'card');
-      const row = el('div', 'mkt-row');
-      const nm = el('div');
-      nm.innerHTML = `${def.icon} <b>${def.name}</b> <span class="dim">기준 ${def.base}</span>`;
-      row.appendChild(nm);
-      const price = el('div', 'price');
-      row.appendChild(price);
-      const have = el('div', 'dim');
-      row.appendChild(have);
-      const auto = el('div');
-      row.appendChild(auto);
-      live.push(() => {
-        const pp = me();
-        price.textContent = `💰${fmt1(S.game.market[m])}`;
-        have.textContent = pp ? `보유 ${fmt1(pp.inv[m])}` : '';
+/** 현재 병력 수에 맞춰 스프라이트 수를 맞춘다 (종류당 최대 10개, 1개는 여러 명을 대표) */
+function syncSprites(bucket, counts, side) {
+  for (const k of UNIT_KINDS.concat(['mg', 'cannon', 'aa'])) {
+    const n = Math.min(10, Math.ceil(counts[k] || 0));
+    const arr = bucket[k] || (bucket[k] = []);
+    while (arr.length < n) {
+      arr.push({
+        x: side === 'A' ? -0.05 - Math.random() * 0.15 : 0.72 + Math.random() * 0.22,
+        y: 0.15 + Math.random() * 0.7,
+        phase: Math.random() * Math.PI * 2,
       });
-      if (p && p.alive && !g.ended) {
-        const tg = el('button', 'small' + (p.autoSell[m] ? ' on' : ''), p.autoSell[m] ? `자동 판매 켬 (${C.AUTO_SELL_KEEP[m]} 남김)` : '자동 판매');
-        tg.addEventListener('click', () => emit('setAutoSell', { mat: m, on: !p.autoSell[m] }));
-        auto.appendChild(tg);
-        const btns = el('div', 'btns');
-        for (const q of [1, 10, 50]) {
-          const b = el('button', 'small', `사기 ${q}`);
-          b.addEventListener('click', () => emit('trade', { mat: m, side: 'buy', qty: q }));
-          btns.appendChild(b);
-        }
-        for (const q of [1, 10, -1]) {
-          const b = el('button', 'small', q === -1 ? '전부 팔기' : `팔기 ${q}`);
-          b.addEventListener('click', () => emit('trade', { mat: m, side: 'sell', qty: q }));
-          live.push(() => (b.disabled = !me() || me().inv[m] < (q === -1 ? 1 : q)));
-          btns.appendChild(b);
-        }
-        row.appendChild(btns);
+    }
+    while (arr.length > n) arr.pop();
+  }
+}
+
+function stepBattleAnim(dt) {
+  const t = tiles()[anim.idx];
+  if (!t || !t.bt) return;
+  const A = t.bt.A || {};
+  const D = unitsOf(t);
+  const towers = {};
+  for (const b of t.b || []) if (C.TOWER[b.k]) towers[b.k] = (towers[b.k] || 0) + 1;
+  syncSprites(anim.sprites.A, A, 'A');
+  syncSprites(anim.sprites.D, { ...D, ...towers }, 'D');
+  // 공격군은 전선(x≈0.45)까지 전진하며 흔들린다
+  for (const k of UNIT_KINDS) {
+    for (const s of anim.sprites.A[k] || []) {
+      const front = k === 'air' ? 0.55 : 0.42;
+      if (s.x < front) s.x += dt * (k === 'air' ? 0.35 : 0.18);
+      s.phase += dt * 4;
+    }
+    for (const s of anim.sprites.D[k] || []) s.phase += dt * 3;
+  }
+  // 사격 — 양쪽 화력에 비례해 선을 긋는다
+  const aList = UNIT_KINDS.flatMap((k) => (anim.sprites.A[k] || []).map((s) => ({ s, k })));
+  const dList = UNIT_KINDS.concat(['mg', 'cannon', 'aa']).flatMap((k) => (anim.sprites.D[k] || []).map((s) => ({ s, k })));
+  if (aList.length && dList.length) {
+    const rate = 6 + Math.min(20, aList.length + dList.length);
+    if (Math.random() < rate * dt) {
+      const from = aList[Math.floor(Math.random() * aList.length)];
+      const to = dList[Math.floor(Math.random() * dList.length)];
+      anim.shots.push({ from: from.s, to: to.s, color: '#fca5a5', life: 0.18 });
+    }
+    if (Math.random() < rate * dt) {
+      const from = dList[Math.floor(Math.random() * dList.length)];
+      const to = aList[Math.floor(Math.random() * aList.length)];
+      anim.shots.push({ from: from.s, to: to.s, color: '#93c5fd', life: 0.18 });
+    }
+  }
+  for (const sh of anim.shots) sh.life -= dt;
+  anim.shots = anim.shots.filter((sh) => sh.life > 0);
+}
+
+function drawBattleAnim() {
+  const scene = anim.scene;
+  const W = scene.clientWidth || 300;
+  const H = 150;
+  const dpr = window.devicePixelRatio || 1;
+  if (scene.width !== W * dpr || scene.height !== H * dpr) {
+    scene.width = W * dpr;
+    scene.height = H * dpr;
+    scene.style.height = H + 'px';
+  }
+  const c = scene.getContext('2d');
+  c.setTransform(dpr, 0, 0, dpr, 0, 0);
+  c.clearRect(0, 0, W, H);
+  // 땅
+  c.fillStyle = '#1a2230';
+  c.fillRect(0, 0, W, H);
+  c.fillStyle = '#243044';
+  c.fillRect(W * 0.6, 0, W * 0.4, H);
+  c.strokeStyle = '#3b4a63';
+  c.setLineDash([4, 4]);
+  c.beginPath();
+  c.moveTo(W * 0.6, 0);
+  c.lineTo(W * 0.6, H);
+  c.stroke();
+  c.setLineDash([]);
+  // 사격선
+  for (const sh of anim.shots) {
+    c.globalAlpha = Math.min(1, sh.life / 0.18);
+    c.strokeStyle = sh.color;
+    c.lineWidth = 1.5;
+    c.beginPath();
+    c.moveTo(sh.from.x * W, sh.from.y * H);
+    c.lineTo(sh.to.x * W, sh.to.y * H);
+    c.stroke();
+  }
+  c.globalAlpha = 1;
+  // 스프라이트
+  c.textAlign = 'center';
+  c.textBaseline = 'middle';
+  const draw = (bucket, mirror) => {
+    for (const k of Object.keys(bucket)) {
+      const icon = (C.UNIT[k] || C.TOWER[k]).icon;
+      const size = C.TOWER[k] ? 22 : k === 'air' ? 18 : 16;
+      c.font = `${size}px sans-serif`;
+      for (const s of bucket[k]) {
+        const bob = C.TOWER[k] ? 0 : Math.sin(s.phase) * (k === 'air' ? 4 : 1.5);
+        const x = s.x * W;
+        const y = s.y * H + bob;
+        if (mirror) {
+          c.save();
+          c.translate(x, y);
+          c.scale(-1, 1);
+          c.fillText(icon, 0, 0);
+          c.restore();
+        } else c.fillText(icon, x, y);
       }
-      card.appendChild(row);
-      wrap.appendChild(card);
     }
-    if (p) {
-      const nw = el('div', 'card');
-      const nwText = el('div');
-      live.push(() => (nwText.innerHTML = `순자산 <b>💰${fmt(me().nw)}</b> <span class="dim">(돈+자원+건물+병력+땅)</span>`));
-      nw.appendChild(nwText);
-      wrap.appendChild(nw);
-    }
-  });
+  };
+  draw(anim.sprites.A, false);
+  draw(anim.sprites.D, true);
 }
 
 /* ------------------------------------------------------------------ 순위 */
@@ -876,7 +881,7 @@ function renderRankPane() {
   wrap.innerHTML = '';
   const table = el('table', 'rank');
   const thead = el('thead');
-  thead.innerHTML = '<tr><th>플레이어</th><th>땅</th><th>돈</th><th>순자산</th></tr>';
+  thead.innerHTML = '<tr><th>플레이어</th><th>땅</th><th>수입/초</th><th>돈</th><th>순자산</th></tr>';
   table.appendChild(thead);
   const tbody = el('tbody');
   const rows = [...g.players].sort((a, b) => (a.alive !== b.alive ? (a.alive ? -1 : 1) : b.nw - a.nw));
@@ -889,55 +894,34 @@ function renderRankPane() {
     nm.appendChild(document.createTextNode((isBotId(p.id) ? '🤖 ' : '') + p.name + (p.id === ME ? ' (나)' : '')));
     tr.appendChild(nm);
     tr.appendChild(el('td', '', String(p.land)));
+    tr.appendChild(el('td', '', fmt1(p.income)));
     tr.appendChild(el('td', '', fmt(p.cash)));
     tr.appendChild(el('td', '', fmt(p.nw)));
     tbody.appendChild(tr);
   }
   table.appendChild(tbody);
   wrap.appendChild(table);
-  wrap.appendChild(el('p', 'dim', `${g.round}라운드 진행 중 · 다음 습격: 보병 ${3 + Math.round(1.5 * (g.round + 1))}${g.round + 1 >= 2 ? ' + 전차·포병' : ''}${g.round + 1 >= 5 ? ' + 항공기' : ''}`));
+  wrap.appendChild(el('p', 'dim', `${g.round}라운드 진행 중. 약탈대는 라운드가 오를수록, 땅이 많을수록 커집니다.`));
 }
 
-/* ------------------------------------------------------------------ 상성표 */
+/* ------------------------------------------------------------------ 도움말 */
 
 function renderHelpPane() {
   const wrap = $('#tab-help');
   renderPane('help', 'static', () => {
     wrap.innerHTML = '';
-    const cats = ['inf', 'tank', 'arty', 'air', 'mg', 'cannon', 'mortar', 'aa'];
-    const label = (k) => (C.UNIT[k] || C.TOWER[k]).icon;
-    const table = el('table', 'mult');
-    const head = el('tr');
-    head.appendChild(el('th', '', '공격↓ 대상→'));
-    for (const c of cats) head.appendChild(el('th', '', label(c)));
-    table.appendChild(head);
-    for (const a of cats) {
-      const tr = el('tr');
-      const th = el('th', '', `${label(a)} ${(C.UNIT[a] || C.TOWER[a]).name}`);
-      tr.appendChild(th);
-      for (const c of cats) {
-        const m = C.MULT[a][c];
-        const td = el('td', m === undefined ? 'zero' : m === 0 ? 'zero' : m >= 1.5 ? 'hi' : m <= 0.5 ? 'lo' : '', m === undefined ? '—' : m === 0 ? '✕' : `×${m}`);
-        tr.appendChild(td);
-      }
-      table.appendChild(tr);
-    }
-    wrap.appendChild(el('p', 'dim', '피해 배수. 초록은 강함, 빨강은 약함, ✕는 아예 못 때림. 타워는 수비 때만 싸웁니다.'));
-    wrap.appendChild(table);
     const list = el('div', 'help-list');
-    for (const [k, d] of [...Object.entries(C.UNIT), ...Object.entries(C.TOWER)]) {
-      const line = el('div');
-      line.innerHTML = `<span class="k">${d.icon} ${d.name}</span> 체력 ${d.hp} · 공격 ${d.dps}/초 · ${costText(d.cost)}<br><span class="dim">${d.desc}</span>`;
-      list.appendChild(line);
-    }
-    for (const [k, d] of Object.entries(C.ECON)) {
-      const line = el('div');
-      line.innerHTML = `<span class="k">${d.icon} ${d.name}</span> ${costText(d.cost)} · 증설 시 생산 ×레벨<br><span class="dim">${d.desc}</span>`;
-      list.appendChild(line);
-    }
-    const tips = el('div');
-    tips.innerHTML = `<span class="k">💡 요령</span><br><span class="dim">· 습격은 12초 전에 예고됩니다. 인접한 땅의 병력을 옮겨 막으세요.<br>· 점령하면 상대의 경제 건물을 그대로 가져옵니다. 타워는 전투에서 부서집니다.<br>· 부품은 공장에서만 나옵니다. 시장에서 사면 비쌉니다.<br>· 곡사(포병)는 타워를 잘 부수지만 보병에 약합니다. 항공기는 대공포가 없으면 막기 어렵습니다.</span>`;
-    list.appendChild(tips);
+    const add = (html) => {
+      const d = el('div');
+      d.innerHTML = html;
+      list.appendChild(d);
+    };
+    add('<span class="k">상성 한 줄</span><br>🛡️ 전차는 🪖 보병을, 🪖 보병은 ✈️ 항공기를, ✈️ 항공기는 🛡️ 전차를 잡습니다.<br>🔫 기관총은 보병, 🏯 포탑은 전차, 🚀 대공포는 항공기를 막습니다.');
+    for (const [k, d] of Object.entries(C.UNIT)) add(`<span class="k">${d.icon} ${d.name}</span> 💰${d.cost} · 체력 ${d.hp} · 공격 ${d.dps}/초<br><span class="dim">${d.desc}</span>`);
+    for (const [k, d] of Object.entries(C.TOWER)) add(`<span class="k">${d.icon} ${d.name}</span> 💰${d.cost} · 체력 ${d.hp} · 공격 ${d.dps}/초<br><span class="dim">${d.desc} 수비할 때만 싸우고, 부지를 한 칸 씁니다.</span>`);
+    add(`<span class="k">${C.FACTORY.icon} ${C.FACTORY.name}</span> 💰${C.FACTORY.cost} · 초당 ${C.FACTORY.income}×땅 등급×레벨<br><span class="dim">${C.FACTORY.desc}</span>`);
+    add(`<span class="k">💸 유지비</span><br><span class="dim">병력은 초당 가격의 ${C.UPKEEP * 100}% 를 유지비로 씁니다 (보병 ${C.UNIT.inf.cost * C.UPKEEP}, 전차 ${C.UNIT.tank.cost * C.UPKEEP}, 항공기 ${C.UNIT.air.cost * C.UPKEEP}). 돈이 바닥나면 병력이 흩어집니다.</span>`);
+    add('<span class="k">💡 요령</span><br><span class="dim">· 습격은 12초 전에 예고됩니다. 옆 땅의 병력을 옮겨 막으세요.<br>· 점령하면 상대 공장을 그대로 가져옵니다. 타워는 전투에서 부서집니다.<br>· 타워는 병력보다 싸고 튼튼하지만 움직이지 못하고 부지를 씁니다.<br>· 땅이 많을수록 약탈대도 커집니다. 넓힌 만큼 지키세요.</span>');
     wrap.appendChild(list);
   });
 }
@@ -954,7 +938,6 @@ function renderLogPane() {
     list.innerHTML = '';
     const logs = entries.filter((e) => !e.chat).sort((a, b) => a.order - b.order);
     const chats = entries.filter((e) => e.chat).sort((a, b) => a.order - b.order);
-    // 채팅은 아래쪽에, 게임 기록은 시간순으로 — 둘 다 마지막 40줄
     for (const e of logs.slice(-40)) {
       const line = el('div', 'line');
       line.appendChild(el('span', 't', mmss(e.t)));

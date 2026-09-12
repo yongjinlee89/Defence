@@ -192,8 +192,6 @@ io.on('connection', (socket) => {
   socket.on('move', withRoom((room, pid, p) => room.gameAction(pid, (g) => g.move(pid, p.from, p.to, p.units))));
   socket.on('attack', withRoom((room, pid, p) => room.gameAction(pid, (g) => g.attack(pid, p.from, p.to, p.units))));
   socket.on('retreat', withRoom((room, pid, p) => room.gameAction(pid, (g) => g.retreat(pid, p.idx))));
-  socket.on('trade', withRoom((room, pid, p) => room.gameAction(pid, (g) => g.trade(pid, p))));
-  socket.on('setAutoSell', withRoom((room, pid, p) => room.gameAction(pid, (g) => g.setAutoSell(pid, p.mat, p.on))));
 
   /* ------------------------------------------------------------ 기타 */
   socket.on('leaveRoom', withRoom((room, pid) => {
