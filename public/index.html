@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+  <title>디펜스 — 영토 확장 실시간 디펜스</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <!-- ============================================== 입장 화면 -->
+  <section id="screen-join" class="screen">
+    <div class="join-card">
+      <h1>🏰 디펜스</h1>
+      <p class="sub">땅을 개발해 돈을 벌고, 타워와 병력으로 지키고, 이웃을 쳐서 영토를 넓히세요.</p>
+      <label>이름
+        <input id="join-name" maxlength="16" placeholder="예: 장군" />
+      </label>
+      <label>방 코드
+        <input id="join-room" maxlength="24" placeholder="예: friends" />
+      </label>
+      <button id="join-btn" class="primary">입장하기</button>
+      <p id="join-error" class="error"></p>
+      <details class="rules">
+        <summary>게임 방법</summary>
+        <ul>
+          <li><b>실시간</b>입니다. 턴이 없고 건물은 초당 생산하고, 전투는 초 단위로 서로를 갉아먹습니다.</li>
+          <li>각 영토에는 <b>부지</b>가 몇 칸 있습니다. 광산·유정·농장·공장·상점(돈을 버는 건물)과 타워(지키는 건물)가 같은 부지를 씁니다. 타워는 돈을 벌지 않습니다.</li>
+          <li>자원(철·석유·식량)과 공장에서 만든 <b>부품</b>은 시장에서 사고팔 수 있습니다. 많이 사면 오르고 많이 팔면 내립니다.</li>
+          <li>병력(보병·전차·포병·항공기)은 돈과 자원으로 뽑아 영토에 주둔시키고, 인접한 내 땅으로 즉시 옮길 수 있습니다.</li>
+          <li>인접한 남의 땅(중립·다른 플레이어)을 골라 <b>공격</b>하면 전투가 시작됩니다. 이기면 땅과 경제 건물을 빼앗습니다. 전투 중에도 양쪽 다 증원할 수 있습니다.</li>
+          <li><b>상성</b>: 기관총↔보병, 포탑↔전차, 대공포↔항공기, 포병은 타워를 부수지만 보병에 약합니다. 전차·포탑·박격포는 공중을 못 때립니다.</li>
+          <li>75초마다 <b>약탈대</b>가 각 플레이어의 영토 하나를 습격합니다(12초 전에 예고). 막지 못하면 그 땅을 잃습니다. 라운드가 오를수록 강해집니다.</li>
+          <li>제한 시간이 끝났을 때 <b>순자산</b>(돈+자원+건물+병력+땅)이 가장 많은 사람이 우승합니다. 땅을 전부 잃으면 탈락입니다.</li>
+        </ul>
+      </details>
+    </div>
+  </section>
+
+  <!-- ============================================== 대기실 -->
+  <section id="screen-lobby" class="screen hidden">
+    <div class="lobby-card">
+      <h2>대기실 <span id="lobby-room-code" class="room-code"></span></h2>
+      <ul id="lobby-players" class="lobby-players"></ul>
+      <div id="lobby-settings" class="lobby-settings"></div>
+      <div class="lobby-actions" id="lobby-bot-actions">
+        <button id="lobby-add-bot">🤖 컴퓨터 추가</button>
+        <button id="lobby-remove-bot">컴퓨터 빼기</button>
+      </div>
+      <div class="lobby-actions">
+        <button id="lobby-start" class="primary">게임 시작</button>
+        <button id="lobby-leave">나가기</button>
+      </div>
+      <p id="lobby-hint" class="hint"></p>
+    </div>
+  </section>
+
+  <!-- ============================================== 게임 화면 -->
+  <section id="screen-game" class="screen hidden">
+    <header id="topbar">
+      <div class="top-left">
+        <span id="hud-timer"></span>
+        <span id="hud-wave"></span>
+      </div>
+      <div class="top-mid" id="hud-inv"></div>
+      <div class="top-right">
+        <span id="hud-land"></span>
+        <span id="hud-cash"></span>
+      </div>
+      <div id="time-bar"><div id="time-fill"></div></div>
+    </header>
+
+    <main id="game-main">
+      <div id="map-wrap">
+        <canvas id="map"></canvas>
+        <div id="target-hint" class="hidden"></div>
+      </div>
+
+      <aside id="side">
+        <nav id="tabs">
+          <button data-tab="tile" class="tab active">영토</button>
+          <button data-tab="market" class="tab">시장</button>
+          <button data-tab="rank" class="tab">순위</button>
+          <button data-tab="help" class="tab">상성</button>
+          <button data-tab="log" class="tab">기록</button>
+        </nav>
+        <div id="tab-tile" class="tab-body"></div>
+        <div id="tab-market" class="tab-body hidden"></div>
+        <div id="tab-rank" class="tab-body hidden"></div>
+        <div id="tab-help" class="tab-body hidden"></div>
+        <div id="tab-log" class="tab-body hidden">
+          <div id="log-list"></div>
+          <form id="chat-form">
+            <input id="chat-input" maxlength="200" placeholder="채팅..." autocomplete="off" />
+            <button type="submit">전송</button>
+          </form>
+        </div>
+      </aside>
+    </main>
+
+    <div id="result-overlay" class="overlay hidden">
+      <div class="result-card">
+        <h2>🏆 최종 순위</h2>
+        <ol id="result-list"></ol>
+        <div class="lobby-actions">
+          <button id="result-restart" class="primary">다시 하기</button>
+          <button id="result-close">닫기</button>
+        </div>
+        <p id="result-hint" class="hint"></p>
+      </div>
+    </div>
+  </section>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="client.js"></script>
+</body>
+</html>

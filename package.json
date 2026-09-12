@@ -1,0 +1,24 @@
+{
+  "name": "territory-defense",
+  "version": "1.0.0",
+  "private": true,
+  "description": "디펜스 - 영토 확장 실시간 멀티플레이어 디펜스 게임 (Node.js + Socket.IO)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js",
+    "test": "node test/game.test.js && node test/room.test.js && node test/bot.test.js",
+    "balance": "node test/balance.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "compression": "^1.8.1",
+    "express": "^4.19.2",
+    "socket.io": "^4.7.5"
+  },
+  "devDependencies": {
+    "socket.io-client": "^4.8.3"
+  }
+}
