@@ -21,15 +21,15 @@
 // 유닛 3종. 전차 > 보병, 항공기 > 전차. 항공기는 대공포·항공기만 제대로 막는다 (지상군은 거의 못 맞춘다).
 const UNIT = {
   inf: { name: '보병', icon: '🪖', hp: 10, dps: 1.2, cost: 20, desc: '싸고 많다. 전차·기관총에 약하고, 항공기는 거의 못 맞춘다.' },
-  tank: { name: '전차', icon: '🛡️', hp: 40, dps: 4, cost: 90, desc: '보병을 밀어내고 타워를 부순다. 항공기를 못 때린다.' },
-  air: { name: '항공기', icon: '✈️', hp: 25, dps: 6, cost: 130, desc: '전차를 잡는다. 대공포와 항공기만 제대로 막을 수 있다.' },
+  tank: { name: '전차', icon: '🛡️', hp: 50, dps: 6, cost: 100, desc: '보병을 밀어내고 타워를 부순다. 항공기를 못 때린다.' },
+  air: { name: '항공기', icon: '✈️', hp: 40, dps: 10, cost: 150, desc: '전차를 잡는다. 대공포와 항공기만 제대로 막을 수 있다.' },
 };
 const UNIT_KINDS = Object.keys(UNIT);
 
 // 타워 3종. 부지 하나를 차지하는 건물이며 전투에 참가한다. 각자 담당이 하나씩.
 const TOWER = {
   mg: { name: '기관총', icon: '🔫', hp: 60, dps: 4, cost: 100, desc: '보병 담당. 전차에 약하다.' },
-  cannon: { name: '포탑', icon: '🎯', hp: 80, dps: 6, cost: 160, desc: '전차 담당. 항공기를 못 때린다.' },
+  cannon: { name: '포탑', icon: '🎯', hp: 80, dps: 7, cost: 160, desc: '전차 담당. 항공기를 못 때린다.' },
   aa: { name: '대공포', icon: '🚀', hp: 60, dps: 6, cost: 150, desc: '항공기 담당. 지상에는 약하다.' },
 };
 const TOWER_KINDS = Object.keys(TOWER);
@@ -37,18 +37,18 @@ const TOWER_KINDS = Object.keys(TOWER);
 // 경제 건물은 공장 하나. 수입 = INCOME × 땅 등급 × 레벨 (초당)
 const FACTORY = { name: '공장', icon: '🏭', cost: 200, income: 2, desc: '초당 돈을 번다. 좋은 땅일수록 더 번다. 3레벨까지 증설.' };
 const MAX_LEVEL = 3;
-const UPGRADE_MULT = 2.0; // 레벨업 비용 = 건설비 × 2^(현재 레벨)
+const UPGRADE_MULT = 1.5; // 레벨업 비용 = 건설비 × 1.5^(현재 레벨) — 새로 짓는 것보다 조금 비싸지만 부지를 아낀다
 const LAND_VALUE = 300; // 순자산에 더하는 땅 한 칸의 가치
 
 /**
  * 상성표 — 공격자 종류(행) 가 대상 종류(열) 에게 주는 피해 배수. 0 이면 아예 맞출 수 없다.
  */
 const MULT = {
-  inf: { inf: 1.0, tank: 0.4, air: 0.3, mg: 0.5, cannon: 0.6, aa: 1.0 },
+  inf: { inf: 1.0, tank: 0.5, air: 0.5, mg: 0.5, cannon: 0.7, aa: 1.0 },
   tank: { inf: 1.5, tank: 1.0, air: 0, mg: 1.5, cannon: 1.0, aa: 1.5 },
   air: { inf: 1.0, tank: 1.5, air: 1.0, mg: 1.0, cannon: 1.5, aa: 0.5 },
-  mg: { inf: 2.0, tank: 0.3, air: 0.5 },
-  cannon: { inf: 0.5, tank: 2.0, air: 0 },
+  mg: { inf: 2.0, tank: 0.3, air: 0.8 },
+  cannon: { inf: 0.5, tank: 2.5, air: 0 },
   aa: { inf: 0.3, tank: 0.2, air: 3.0 },
 };
 
@@ -147,7 +147,7 @@ class Game {
       t.slots = 6;
       t.owner = p.id;
       t.capital = true;
-      t.b = [{ k: 'factory', lv: 1 }, { k: 'mg', hp: TOWER.mg.hp }, { k: 'mg', hp: TOWER.mg.hp }];
+      t.b = [{ k: 'factory', lv: 1 }, { k: 'mg', hp: TOWER.mg.hp }, { k: 'cannon', hp: TOWER.cannon.hp }];
       t.units = { inf: 8, tank: 0, air: 0 };
       p.capital = t.idx;
     });

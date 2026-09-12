@@ -643,8 +643,8 @@ function renderTilePane() {
           live.push(() => (up.disabled = !me() || me().cash < cost));
           row.appendChild(up);
         }
-        const dm = el('button', 'small', '✕');
-        dm.title = `철거 (건설비 ${Math.round(C.DEMOLISH_REFUND * 100)}% 환불)`;
+        const dm = el('button', 'small', '철거');
+        dm.title = `철거하면 부지가 비고 건설비의 ${Math.round(C.DEMOLISH_REFUND * 100)}% 를 돌려받습니다`;
         dm.addEventListener('click', () => {
           if (confirm(`${def.name}을(를) 철거할까요? 건설비의 ${Math.round(C.DEMOLISH_REFUND * 100)}%만 돌려받습니다.`)) emit('demolish', { idx: selected, slot: i });
         });

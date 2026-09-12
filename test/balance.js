@@ -41,11 +41,11 @@ function trial(r, towers, units) {
   return t.owner === 'a';
 }
 const templates = [
-  ['A 시작 상태(2기관총+8보병)', ['mg', 'mg'], { inf: 8 }],
-  ['B +포탑', ['mg', 'mg', 'cannon'], { inf: 8 }],
-  ['C +포탑+대공포+전차2', ['mg', 'mg', 'cannon', 'aa'], { inf: 8, tank: 2 }],
-  ['D 보병10 전차4', ['mg', 'mg', 'cannon', 'aa'], { inf: 10, tank: 4 }],
-  ['E 포탑2 보병15 전차6 항공기2', ['mg', 'mg', 'cannon', 'cannon', 'aa'], { inf: 15, tank: 6, air: 2 }],
+  ['A 시작 상태(기관총+포탑+보병8)', ['mg', 'cannon'], { inf: 8 }],
+  ['B +대공포', ['mg', 'cannon', 'aa'], { inf: 8 }],
+  ['C 3타워+보병8+전차2', ['mg', 'cannon', 'aa'], { inf: 8, tank: 2 }],
+  ['D 3타워+보병12+전차4', ['mg', 'cannon', 'aa'], { inf: 12, tank: 4 }],
+  ['E 4타워+보병15+전차6+항공기2', ['mg', 'cannon', 'cannon', 'aa'], { inf: 15, tank: 6, air: 2 }],
 ];
 for (const [n] of templates) console.log('  ' + n);
 for (const r of [1, 2, 3, 4, 5, 6, 8, 10, 12, 14]) {
