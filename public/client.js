@@ -204,8 +204,8 @@ function unitsOf(t) {
 }
 function unitsText(u) {
   const parts = [];
-  for (const k of UNIT_KINDS) if ((u[k] || 0) > 0.05) parts.push(C.UNIT[k].icon + fmt1(u[k]));
-  return parts.join(' ') || '없음';
+  for (const k of UNIT_KINDS) if ((u[k] || 0) > 0.05) parts.push(`<span class="inline-ic">${ICONS.svg(k, 16)}${fmt1(u[k])}</span>`);
+  return parts.join('') || '없음';
 }
 function defOf(k) {
   return k === 'factory' ? C.FACTORY : C.TOWER[k];
@@ -419,10 +419,9 @@ function drawMap() {
     ctx.textAlign = 'right';
     ctx.font = `${fs}px sans-serif`;
     ctx.fillText((g.raids && g.raids[idx] ? '⚠️ ' : '') + '💰'.repeat(t.y), px + size - 6, py + 5);
-    // 건물 아이콘
-    ctx.textAlign = 'left';
-    ctx.font = `${Math.floor(fs * 1.1)}px sans-serif`;
-    ctx.fillText((t.b || []).map((b) => defOf(b.k).icon).join(''), px + 6, py + 6 + fs * 1.4);
+    // 건물 아이콘 — 공장은 연회색, 타워는 노란빛으로 구분
+    const bi = Math.floor(fs * 1.3);
+    (t.b || []).forEach((b, i) => ICONS.draw(ctx, b.k, px + 6 + i * (bi + 2), py + 6 + fs * 1.4, bi, b.k === 'factory' ? '#c9ced9' : '#f2d27a'));
     ctx.fillStyle = '#9aa1b0';
     ctx.font = `${Math.floor(fs * 0.9)}px sans-serif`;
     ctx.textAlign = 'right';
@@ -432,14 +431,31 @@ function drawMap() {
     ctx.fillStyle = '#e8eaf0';
     ctx.font = `${fs}px sans-serif`;
     const u = unitsOf(t);
-    ctx.fillText(UNIT_KINDS.filter((k) => u[k] >= 0.5).map((k) => C.UNIT[k].icon + Math.floor(u[k])).join(' '), px + 6, py + size - fs - 6);
+    drawUnitRow(px + 6, py + size - fs - 6, fs, u, '#e8eaf0', false, size - 12);
     if (t.bt) {
-      ctx.textAlign = 'right';
-      ctx.fillStyle = '#fca5a5';
-      ctx.font = `bold ${fs}px sans-serif`;
       const a = t.bt.A || {};
-      ctx.fillText('⚔️ ' + UNIT_KINDS.filter((k) => (a[k] || 0) >= 0.5).map((k) => C.UNIT[k].icon + Math.floor(a[k])).join(' '), px + size - 6, py + size - fs - 6);
+      drawUnitRow(px + size - 6, py + size - fs * 2.4 - 6, fs, a, '#fca5a5', true, size - 12);
     }
+  });
+}
+
+/** 지도 칸 안에 "아이콘+수" 를 한 줄로 그린다. right 면 오른쪽 끝에 맞춘다 */
+function drawUnitRow(x, y, fs, u, color, right, maxW) {
+  const items = UNIT_KINDS.filter((k) => (u[k] || 0) >= 0.5).map((k) => ({ k, n: String(Math.floor(u[k])) }));
+  if (!items.length) return;
+  ctx.font = `bold ${fs}px sans-serif`;
+  ctx.textBaseline = 'top';
+  ctx.textAlign = 'left';
+  ctx.fillStyle = color;
+  const ic = Math.floor(fs * 1.2);
+  const widths = items.map((it) => ic + 2 + ctx.measureText(it.n).width + 6);
+  const total = widths.reduce((s, w) => s + w, 0);
+  let cx = right ? x - Math.min(total, maxW) : x;
+  items.forEach((it, i) => {
+    if (cx + widths[i] > (right ? x : x + maxW) + 1) return;
+    ICONS.draw(ctx, it.k, cx, y - 1, ic, color);
+    ctx.fillText(it.n, cx + ic + 2, y);
+    cx += widths[i];
   });
 }
 
@@ -602,7 +618,7 @@ function renderTilePane() {
         aFill.style.width = `${(ap / tot) * 100}%`;
         dFill.style.width = `${(dp / tot) * 100}%`;
         aBox.innerHTML = `<b style="color:#fca5a5">공격 ${nameOf(tt.bt.att)}</b><br>${unitsText(A)}`;
-        dBox.innerHTML = `<b style="color:#93c5fd">수비 ${tt.owner ? nameOf(tt.owner) : '중립'}</b><br>${unitsText(D)}${towers.length ? '<br>' + towers.map((b) => C.TOWER[b.k].icon).join('') : ''}`;
+        dBox.innerHTML = `<b style="color:#93c5fd">수비 ${tt.owner ? nameOf(tt.owner) : '중립'}</b><br>${unitsText(D)}${towers.length ? '<br>' + towers.map((b) => ICONS.svg(b.k, 16)).join('') : ''}`;
         elapsed.textContent = `${tt.bt.t}초`;
       });
       if (t.bt.att === ME) {
@@ -624,7 +640,7 @@ function renderTilePane() {
     (t.b || []).forEach((b, i) => {
       const def = defOf(b.k);
       const row = el('div', 'slot');
-      row.appendChild(el('span', '', def.icon));
+      row.appendChild(ICONS.el(b.k, 20));
       row.appendChild(el('span', 'name', def.name + (b.k === 'factory' ? ` Lv${b.lv || 1}` : '')));
       if (b.k === 'factory') row.appendChild(el('span', 'hp', `+${C.FACTORY.income * t.y * (b.lv || 1)}/초`));
       else {
@@ -658,7 +674,10 @@ function renderTilePane() {
       const grid = el('div', 'build-grid');
       for (const [k, def] of [['factory', C.FACTORY], ...Object.entries(C.TOWER)]) {
         const btn = el('button');
-        btn.appendChild(el('span', '', `${def.icon} ${def.name} 💰${def.cost}`));
+        const title = el('span', 'inline-ic');
+        title.appendChild(ICONS.el(k, 18));
+        title.appendChild(document.createTextNode(`${def.name} 💰${def.cost}`));
+        btn.appendChild(title);
         btn.appendChild(el('span', 'cost', k === 'factory' ? `+${def.income * t.y}/초` : def.desc));
         btn.addEventListener('click', () => emit('build', { idx: selected, kind: k }));
         live.push(() => (btn.disabled = !me() || me().cash < def.cost));
@@ -674,7 +693,9 @@ function renderTilePane() {
     for (const k of UNIT_KINDS) {
       const def = C.UNIT[k];
       const row = el('div', 'unit-row');
-      const nm = el('span', '', `${def.icon} ${def.name}`);
+      const nm = el('span', 'inline-ic');
+      nm.appendChild(ICONS.el(k, 20));
+      nm.appendChild(document.createTextNode(def.name));
       nm.title = def.desc;
       row.appendChild(nm);
       const cnt = el('span', 'cnt');
@@ -850,27 +871,17 @@ function drawBattleAnim() {
   // 스프라이트
   c.textAlign = 'center';
   c.textBaseline = 'middle';
-  const draw = (bucket, mirror) => {
+  const draw = (bucket, mirror, color) => {
     for (const k of Object.keys(bucket)) {
-      const icon = (C.UNIT[k] || C.TOWER[k]).icon;
-      const size = C.TOWER[k] ? 22 : k === 'air' ? 18 : 16;
-      c.font = `${size}px sans-serif`;
+      const size = C.TOWER[k] ? 26 : k === 'air' ? 22 : 18;
       for (const s of bucket[k]) {
         const bob = C.TOWER[k] ? 0 : Math.sin(s.phase) * (k === 'air' ? 4 : 1.5);
-        const x = s.x * W;
-        const y = s.y * H + bob;
-        if (mirror) {
-          c.save();
-          c.translate(x, y);
-          c.scale(-1, 1);
-          c.fillText(icon, 0, 0);
-          c.restore();
-        } else c.fillText(icon, x, y);
+        ICONS.draw(c, k, s.x * W - size / 2, s.y * H + bob - size / 2, size, color, mirror);
       }
     }
   };
-  draw(anim.sprites.A, false);
-  draw(anim.sprites.D, true);
+  draw(anim.sprites.A, false, '#fca5a5');
+  draw(anim.sprites.D, true, '#93c5fd');
 }
 
 /* ------------------------------------------------------------------ 순위 */
@@ -916,10 +927,11 @@ function renderHelpPane() {
       d.innerHTML = html;
       list.appendChild(d);
     };
-    add('<span class="k">상성 한 줄</span><br>🛡️ 전차는 🪖 보병을, ✈️ 항공기는 🛡️ 전차를 잡습니다. 항공기는 🚀 대공포나 ✈️ 항공기로만 막을 수 있습니다.<br>🔫 기관총은 보병, 🎯 포탑은 전차, 🚀 대공포는 항공기를 막습니다.');
-    for (const [k, d] of Object.entries(C.UNIT)) add(`<span class="k">${d.icon} ${d.name}</span> 💰${d.cost} · 체력 ${d.hp} · 공격 ${d.dps}/초<br><span class="dim">${d.desc}</span>`);
-    for (const [k, d] of Object.entries(C.TOWER)) add(`<span class="k">${d.icon} ${d.name}</span> 💰${d.cost} · 체력 ${d.hp} · 공격 ${d.dps}/초<br><span class="dim">${d.desc} 수비할 때만 싸우고, 부지를 한 칸 씁니다.</span>`);
-    add(`<span class="k">${C.FACTORY.icon} ${C.FACTORY.name}</span> 💰${C.FACTORY.cost} · 초당 ${C.FACTORY.income}×땅 등급×레벨<br><span class="dim">${C.FACTORY.desc}</span>`);
+    const ic = (k) => ICONS.svg(k, 16);
+    add(`<span class="k">상성 한 줄</span><br>${ic('tank')} 전차는 ${ic('inf')} 보병을, ${ic('air')} 항공기는 ${ic('tank')} 전차를 잡습니다. 항공기는 ${ic('aa')} 대공포나 ${ic('air')} 항공기로만 막을 수 있습니다.<br>${ic('mg')} 기관총은 보병, ${ic('cannon')} 포탑은 전차, ${ic('aa')} 대공포는 항공기를 막습니다.`);
+    for (const [k, d] of Object.entries(C.UNIT)) add(`<span class="k">${ic(k)} ${d.name}</span> 💰${d.cost} · 체력 ${d.hp} · 공격 ${d.dps}/초<br><span class="dim">${d.desc}</span>`);
+    for (const [k, d] of Object.entries(C.TOWER)) add(`<span class="k">${ic(k)} ${d.name}</span> 💰${d.cost} · 체력 ${d.hp} · 공격 ${d.dps}/초<br><span class="dim">${d.desc} 수비할 때만 싸우고, 부지를 한 칸 씁니다.</span>`);
+    add(`<span class="k">${ic('factory')} ${C.FACTORY.name}</span> 💰${C.FACTORY.cost} · 초당 ${C.FACTORY.income}×땅 등급×레벨<br><span class="dim">${C.FACTORY.desc}</span>`);
     add(`<span class="k">💸 유지비</span><br><span class="dim">병력은 초당 가격의 ${C.UPKEEP * 100}% 를 유지비로 씁니다 (보병 ${C.UNIT.inf.cost * C.UPKEEP}, 전차 ${C.UNIT.tank.cost * C.UPKEEP}, 항공기 ${C.UNIT.air.cost * C.UPKEEP}). 돈이 바닥나면 병력이 흩어집니다.</span>`);
     add('<span class="k">💡 요령</span><br><span class="dim">· 습격은 12초 전에 예고됩니다. 옆 땅의 병력을 옮겨 막으세요.<br>· 점령하면 상대 공장을 그대로 가져옵니다. 타워는 전투에서 부서집니다.<br>· 타워는 병력보다 싸고 튼튼하지만 움직이지 못하고 부지를 씁니다.<br>· 땅이 많을수록 약탈대도 커집니다. 넓힌 만큼 지키세요.</span>');
     wrap.appendChild(list);

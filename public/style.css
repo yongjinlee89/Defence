@@ -451,6 +451,20 @@ input[type='number'] {
 .battle {
   border-color: var(--danger);
 }
+.ic {
+  vertical-align: -0.2em;
+}
+.ic-wrap {
+  display: inline-flex;
+  align-items: center;
+  color: #dfe3ec;
+}
+.inline-ic {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-right: 6px;
+}
 .battle-scene {
   width: 100%;
   height: 150px;
