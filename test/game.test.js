@@ -53,14 +53,17 @@ const cap = (g, pid) => g.map.tiles[g.player(pid).capital];
   assert.ok(Math.abs(g.incomeOf(p) - 12) < 1e-9);
   const cash0 = p.cash;
   tick(g, 10);
-  // 수입 80 − 보병 8명 유지비 (8×0.1×10 = 8)
-  assert.ok(Math.abs(p.cash - (cash0 + 120 - 8)) < 0.01, '10초에 120 − 유지비 8');
-  assert.ok(Math.abs(g.upkeepOf(p) - 0.8) < 1e-9);
+  // 수입 120, 주둔 보병은 유지비 없음
+  assert.ok(Math.abs(p.cash - (cash0 + 120)) < 0.01, '10초에 120');
+  assert.strictEqual(g.upkeepOf(p), 0, '주둔 보병은 유지비 0');
+  ca.units.tank = 2;
+  assert.ok(Math.abs(g.upkeepOf(p) - 1) < 1e-9, '전차 2대는 1/초');
   // 돈이 바닥나면 탈영
   p.cash = 0;
-  ca.units.inf = 200; // 유지비 20/초 > 수입 12/초
+  ca.units.tank = 100; // 유지비 50/초 > 수입 12/초
   tick(g, 10);
-  assert.ok(ca.units.inf < 200 && ca.units.inf > 100, '유지비를 못 내면 병력이 준다');
+  assert.ok(ca.units.tank < 100 && ca.units.tank > 50, '유지비를 못 내면 병력이 준다');
+  ca.units.tank = 0;
   ca.units.inf = 8;
   p.cash = 1000;
   // 증설
@@ -183,7 +186,9 @@ const cap = (g, pid) => g.map.tiles[g.player(pid).capital];
     Object.assign(ca.units, atk);
     g.attack('a', ca.idx, t.idx, atk);
     tick(g, 120);
-    return t;
+    // 보병 없는 공격은 점령 대신 "공격군이 이겼다(수비대 전멸 기록)" 로 승리를 판정한다
+    const won = t.owner === 'a' || g.log.some((l) => l.text.includes(t.name) && l.text.includes('보병이 없어'));
+    return { owner: won ? 'a' : t.owner, units: t.units };
   };
   assert.strictEqual(setup(['cannon'], { tank: 3 }, { air: 4 }).owner, 'a', '대공포·보병이 없으면 항공기가 이긴다');
   assert.notStrictEqual(setup(['aa', 'aa'], { tank: 3 }, { air: 4 }).owner, 'a', '대공포 2문이면 항공기 4대가 진다');
@@ -197,6 +202,30 @@ const cap = (g, pid) => g.map.tiles[g.player(pid).capital];
   assert.notStrictEqual(setup([], { air: 3 }, { inf: 12 }).owner, 'a', '보병 12명도 항공기 3대를 못 잡는다');
   assert.strictEqual(setup([], { inf: 10 }, { tank: 3 }).owner, 'a', '전차는 보병을 밀어낸다');
   console.log('✓ 상성 (전차 > 보병, 항공기 > 전차, 항공기는 대공포·항공기로만, 타워는 담당 하나씩)');
+}
+
+/* ---------------- 보병 점령 ---------------- */
+{
+  const g = newGame();
+  const p = g.player('a');
+  const ca = cap(g, 'a');
+  const t = g.neighbors(ca).find((x) => !x.owner);
+  t.units = { inf: 3, tank: 0, air: 0 };
+  t.b = [];
+  p.cash = 5000;
+  g.research('a', 'tank');
+  g.train('a', ca.idx, 'tank', 6);
+  assert.ok(g.attack('a', ca.idx, t.idx, { tank: 6 }).ok);
+  tick(g, 60);
+  assert.strictEqual(t.battle, null);
+  assert.strictEqual(t.owner, null, '보병 없이는 점령 못 한다');
+  assert.strictEqual(t.units.inf, 0, '수비대는 전멸');
+  assert.ok(ca.units.tank > 5, '전차는 출발지로 돌아온다');
+  assert.ok(g.log.some((l) => l.text.includes('보병이 없어')));
+  assert.ok(g.attack('a', ca.idx, t.idx, { inf: 2 }).ok);
+  tick(g, 5);
+  assert.strictEqual(t.owner, 'a', '빈 땅은 보병 2명이면 점령');
+  console.log('✓ 보병 점령 규칙');
 }
 
 /* ---------------- 연구 강화 ---------------- */

@@ -75,7 +75,8 @@ const RAID_PER_LAND = 3; // 영토 3칸마다 습격 지점이 하나씩 늘어�
 const BATTLE_LIMIT = 150; // 이보다 긴 전투는 공격자 후퇴로 강제 종료 (교착 방지)
 const TOWER_REPAIR = 1; // 전투 중이 아닐 때 타워 초당 수리량
 const DEMOLISH_REFUND = 0.3;
-const UPKEEP = 0.005; // 병력 유지비: 초당 유닛 가격의 0.5% (보병 0.1, 전차 0.45, 항공기 0.65) — 군대가 수입을 넘으면 탈영한다
+const UPKEEP = 0.005; // 병력 유지비: 초당 유닛 가격의 0.5% (전차 0.5, 항공기 0.75) — 군대가 수입을 넘으면 탈영한다
+// 보병의 장점 두 가지: (1) 땅은 보병이 있어야 점령한다 (2) 주둔 중인 보병은 유지비가 없다 (출정 중에만 낸다)
 const DESERT_RATE = 0.05; // 돈이 바닥나면 초당 5% 씩 탈영
 
 const COLORS = ['#3b82f6', '#ef4444', '#22c55e', '#f59e0b', '#a855f7', '#06b6d4'];
@@ -263,11 +264,11 @@ class Game {
     return { ok: true };
   }
 
-  /** 초당 병력 유지비 (주둔 + 출정 중인 병력 모두) */
+  /** 초당 병력 유지비 — 주둔 보병은 공짜, 전차·항공기와 출정 중인 모든 병력은 낸다 */
   upkeepOf(p) {
     let v = 0;
     for (const t of this.map.tiles) {
-      if (t.owner === p.id) for (const u of UNIT_KINDS) v += t.units[u] * UNIT[u].cost * UPKEEP;
+      if (t.owner === p.id) for (const u of UNIT_KINDS) if (u !== 'inf') v += t.units[u] * UNIT[u].cost * UPKEEP;
       if (t.battle && t.battle.att === p.id) for (const u of UNIT_KINDS) v += t.battle.A[u] * UNIT[u].cost * UPKEEP;
     }
     return v;
@@ -549,6 +550,17 @@ class Game {
       this.pushLog(`🛡️ ${t.name} 방어 성공 — ${attName}의 공격을 막았습니다.`);
       return;
     }
+    // 땅은 보병이 밟아야 내 것 — 전차·항공기만 남았으면 수비대는 전멸시켰지만 점령은 못 하고 돌아간다
+    if (bt.A.inf < 0.5) {
+      t.b = t.b.filter((b) => b.k === 'factory');
+      t.units = emptyUnits();
+      const back = bt.att !== 'npc' ? this.tile(bt.from) : null;
+      if (back && back.owner === bt.att) {
+        for (const u of UNIT_KINDS) back.units[u] += bt.A[u];
+        this.pushLog(`⚠️ ${attName} 이(가) ${t.name} 수비대를 전멸시켰지만 보병이 없어 점령하지 못하고 돌아갔습니다.`);
+      } else this.pushLog(`⚠️ ${attName} 이(가) ${t.name} 수비대를 전멸시켰지만 보병이 없어 점령하지 못했습니다.`);
+      return;
+    }
     t.b = t.b.filter((b) => b.k === 'factory');
     t.units = emptyUnits();
     for (const u of UNIT_KINDS) t.units[u] = bt.A[u];
@@ -576,7 +588,7 @@ class Game {
   static raidForce(r, land = 1) {
     const scale = 1 + 0.15 * Math.max(0, land - 1);
     return {
-      inf: Math.round((r <= 3 ? 2 + r : 3 + Math.round(1.2 * r)) * scale),
+      inf: Math.max(2, Math.round((r <= 3 ? 2 + r : 3 + Math.round(1.2 * r)) * scale)), // 약탈대도 보병이 있어야 함락시킨다
       tank: Math.floor(Math.max(0, (r - 3) * 0.3) * scale),
       air: Math.floor(Math.max(0, (r - 5) * 0.3) * scale),
     };

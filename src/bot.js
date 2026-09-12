@@ -101,7 +101,7 @@ function think(game, pid) {
       send[u] = n <= 2 ? n : Math.floor(n * 0.8);
     }
     const sendPower = power(send);
-    if (sendPower < 120) continue;
+    if (sendPower < 120 || send.inf < 2) continue; // 점령엔 보병이 필요하다
     const targets = game
       .neighbors(t)
       .filter((o) => o.owner !== pid && !o.battle)

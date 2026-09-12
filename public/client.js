@@ -819,7 +819,7 @@ function renderTilePane() {
       row.appendChild(mv);
       row.appendChild(at);
       dc.appendChild(row);
-      dc.appendChild(el('div', 'dim', '누른 뒤 지도에서 인접한 영토를 클릭하세요. 이동은 내 땅, 공격은 남의 땅.'));
+      dc.appendChild(el('div', 'dim', '누른 뒤 지도에서 인접한 영토를 클릭하세요. 이동은 내 땅, 공격은 남의 땅. 점령하려면 보병이 함께 가야 합니다.'));
       order[0] = dc;
     } else if (p && p.alive && !g.ended) {
       order[0] = el('p', 'dim', '이 영토를 치려면 인접한 내 영토를 선택해 "공격" 을 누르세요.');
@@ -1047,7 +1047,8 @@ function renderHelpPane() {
     add(`<span class="k">🔬 연구</span> 전차·항공기는 연구해야 뽑을 수 있습니다. 병종 강화는 그 병종의 체력·공격을 레벨당 +${Math.round(C.RESEARCH_STEP * 100)}%, 공장 생산성은 모든 공장 수입을 레벨당 +${Math.round(C.RESEARCH_STEP * 100)}% 올립니다.`);
     add(`<span class="k">${ic('factory')} ${C.FACTORY.name}</span> 💰${C.FACTORY.cost} · 초당 ${C.FACTORY.income}×땅 등급×레벨<br><span class="dim">${C.FACTORY.desc}</span>`);
     add(`<span class="k">🚩 땅</span> 등급(💰 1~3)이 높을수록 기본 수입과 공장 수입이 높고 부지가 많습니다. 돈을 들여 등급을 올릴 수 있습니다 (${C.LAND_UPGRADE[1]} → ${C.LAND_UPGRADE[2]}). 공장이 없어도 초당 ${C.LAND_INCOME}×등급을 법니다. 영토를 넓히는 것만으로 수입이 늘지만, ${C.RAID_PER_LAND}칸마다 습격 지점이 하나씩 늘어납니다.`);
-    add(`<span class="k">💸 유지비</span><br><span class="dim">병력은 초당 가격의 ${C.UPKEEP * 100}% 를 유지비로 씁니다 (보병 ${C.UNIT.inf.cost * C.UPKEEP}, 전차 ${C.UNIT.tank.cost * C.UPKEEP}, 항공기 ${C.UNIT.air.cost * C.UPKEEP}). 돈이 바닥나면 병력이 흩어집니다.</span>`);
+    add(`<span class="k">🪖 보병의 역할</span><br><span class="dim">· 땅은 보병이 밟아야 점령됩니다. 전차·항공기만으로 이기면 수비대만 없애고 돌아옵니다.<br>· 주둔 중인 보병은 유지비가 없습니다. 출정 중일 때만 냅니다.</span>`);
+    add(`<span class="k">💸 유지비</span><br><span class="dim">전차·항공기와 출정 중인 병력은 초당 가격의 ${C.UPKEEP * 100}% 를 유지비로 씁니다 (전차 ${C.UNIT.tank.cost * C.UPKEEP}, 항공기 ${C.UNIT.air.cost * C.UPKEEP}, 출정 보병 ${C.UNIT.inf.cost * C.UPKEEP}). 돈이 바닥나면 병력이 흩어집니다.</span>`);
     add(`<span class="k">💡 요령</span><br><span class="dim">${S.game.raidsOn ? '· 습격은 12초 전에 예고됩니다. 옆 땅의 병력을 옮겨 막으세요.<br>' : ''}· 점령하면 상대 공장을 그대로 가져옵니다. 타워는 전투에서 부서집니다.<br>· 타워는 병력보다 싸고 튼튼하지만 움직이지 못하고 부지를 씁니다.<br>${S.game.raidsOn ? '· 땅이 많을수록 습격 지점이 늘어납니다. 넓힌 만큼 지키세요.' : '· 땅을 넓힐수록 수입이 늘지만 지킬 곳도 늘어납니다.'}</span>`);
     wrap.appendChild(list);
   });
