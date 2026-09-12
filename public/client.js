@@ -916,7 +916,7 @@ function renderHelpPane() {
       d.innerHTML = html;
       list.appendChild(d);
     };
-    add('<span class="k">상성 한 줄</span><br>🛡️ 전차는 🪖 보병을, 🪖 보병은 ✈️ 항공기를, ✈️ 항공기는 🛡️ 전차를 잡습니다.<br>🔫 기관총은 보병, 🏯 포탑은 전차, 🚀 대공포는 항공기를 막습니다.');
+    add('<span class="k">상성 한 줄</span><br>🛡️ 전차는 🪖 보병을, ✈️ 항공기는 🛡️ 전차를 잡습니다. 항공기는 🚀 대공포나 ✈️ 항공기로만 막을 수 있습니다.<br>🔫 기관총은 보병, 🎯 포탑은 전차, 🚀 대공포는 항공기를 막습니다.');
     for (const [k, d] of Object.entries(C.UNIT)) add(`<span class="k">${d.icon} ${d.name}</span> 💰${d.cost} · 체력 ${d.hp} · 공격 ${d.dps}/초<br><span class="dim">${d.desc}</span>`);
     for (const [k, d] of Object.entries(C.TOWER)) add(`<span class="k">${d.icon} ${d.name}</span> 💰${d.cost} · 체력 ${d.hp} · 공격 ${d.dps}/초<br><span class="dim">${d.desc} 수비할 때만 싸우고, 부지를 한 칸 씁니다.</span>`);
     add(`<span class="k">${C.FACTORY.icon} ${C.FACTORY.name}</span> 💰${C.FACTORY.cost} · 초당 ${C.FACTORY.income}×땅 등급×레벨<br><span class="dim">${C.FACTORY.desc}</span>`);

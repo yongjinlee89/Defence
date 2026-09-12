@@ -45,7 +45,7 @@ function think(game, pid) {
     if (factories === 0) kind = 'factory';
     else if (towers < wantTowers) {
       const has = (k) => t.b.some((b) => b.k === k);
-      kind = !has('mg') ? 'mg' : !has('cannon') ? 'cannon' : game.round >= 3 && !has('aa') ? 'aa' : 'cannon';
+      kind = !has('mg') ? 'mg' : !has('cannon') ? 'cannon' : !has('aa') ? 'aa' : 'cannon';
     } else if (free > maxTowers - towers) kind = 'factory';
     if (kind && game.build(pid, t.idx, kind).ok) {
       changed = true;

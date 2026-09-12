@@ -149,14 +149,15 @@ const cap = (g, pid) => g.map.tiles[g.player(pid).capital];
   };
   assert.strictEqual(setup(['cannon'], { tank: 3 }, { air: 4 }).owner, 'a', '대공포·보병이 없으면 항공기가 이긴다');
   assert.notStrictEqual(setup(['aa', 'aa'], { tank: 3 }, { air: 4 }).owner, 'a', '대공포 2문이면 항공기 4대가 진다');
-  assert.notStrictEqual(setup(['cannon'], { inf: 10, tank: 2 }, { air: 4 }).owner, 'a', '보병이 많으면 항공기가 진다');
+  assert.strictEqual(setup(['cannon'], { inf: 10, tank: 2 }, { air: 4 }).owner, 'a', '보병이 많아도 항공기를 못 막는다');
+  assert.notStrictEqual(setup([], { air: 3 }, { air: 3 }).owner, 'a', '항공기는 항공기로 막는다');
   assert.notStrictEqual(setup(['cannon', 'cannon'], {}, { tank: 4 }).owner, 'a', '포탑 2문은 전차 4대를 막는다');
   assert.strictEqual(setup(['cannon', 'cannon'], {}, { air: 3 }).owner, 'a', '포탑은 항공기를 못 때린다');
   assert.strictEqual(setup(['mg', 'mg'], {}, { tank: 3 }).owner, 'a', '전차는 기관총을 뚫는다');
   assert.notStrictEqual(setup(['mg', 'mg'], {}, { inf: 12 }).owner, 'a', '기관총 2문은 보병 12명을 막는다');
-  assert.strictEqual(setup([], { air: 3 }, { inf: 12 }).owner, 'a', '보병은 항공기를 잡는다');
+  assert.notStrictEqual(setup([], { air: 3 }, { inf: 12 }).owner, 'a', '보병 12명도 항공기 3대를 못 잡는다');
   assert.strictEqual(setup([], { inf: 10 }, { tank: 3 }).owner, 'a', '전차는 보병을 밀어낸다');
-  console.log('✓ 상성 (전차 > 보병 > 항공기 > 전차, 타워는 담당 하나씩)');
+  console.log('✓ 상성 (전차 > 보병, 항공기 > 전차, 항공기는 대공포·항공기로만, 타워는 담당 하나씩)');
 }
 
 /* ---------------- 증원/후퇴 ---------------- */
