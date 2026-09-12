@@ -48,12 +48,12 @@ const cap = (g, pid) => g.map.tiles[g.player(pid).capital];
   assert.ok(g.build('a', ca.idx, 'aa').ok);
   assert.strictEqual(ca.b.length, 6);
   assert.ok(!g.build('a', ca.idx, 'mg').ok, '부지 6칸이 다 찼다');
-  // 수입: 공장 2개 × 등급 2 × 2 = 8/초
-  assert.strictEqual(g.incomeOf(p), 8);
+  // 수입: 땅 기본 0.3×2 + 공장 2개 × 등급 2 × 2 = 8.6/초
+  assert.ok(Math.abs(g.incomeOf(p) - 8.6) < 1e-9);
   const cash0 = p.cash;
   tick(g, 10);
   // 수입 80 − 보병 8명 유지비 (8×0.1×10 = 8)
-  assert.ok(Math.abs(p.cash - (cash0 + 80 - 8)) < 0.01, '10초에 80 − 유지비 8');
+  assert.ok(Math.abs(p.cash - (cash0 + 86 - 8)) < 0.01, '10초에 86 − 유지비 8');
   assert.ok(Math.abs(g.upkeepOf(p) - 0.8) < 1e-9);
   // 돈이 바닥나면 탈영
   p.cash = 0;
@@ -68,7 +68,7 @@ const cap = (g, pid) => g.map.tiles[g.player(pid).capital];
   assert.ok(g.upgrade('a', ca.idx, slot).ok);
   assert.strictEqual(ca.b[slot].lv, 2);
   assert.strictEqual(before - p.cash, 300, '증설 1.5배');
-  assert.strictEqual(g.incomeOf(p), 12);
+  assert.ok(Math.abs(g.incomeOf(p) - 12.6) < 1e-9);
   assert.ok(!g.upgrade('a', ca.idx, ca.b.findIndex((b) => b.k === 'mg')).ok, '타워는 증설 불가');
   // 철거
   const n = ca.b.length;
@@ -195,6 +195,11 @@ const cap = (g, pid) => g.map.tiles[g.player(pid).capital];
   tick(g, 60);
   assert.ok(g.map.tiles.every((t) => !t.battle), '1라운드는 기본 방어로 막힌다');
   assert.ok(g.player('a').alive && g.player('b').alive);
+  // 땅이 많으면 여러 곳을 동시에 습격당한다
+  assert.strictEqual(Game.raidCount(1), 1);
+  assert.strictEqual(Game.raidCount(4), 1);
+  assert.strictEqual(Game.raidCount(5), 2);
+  assert.strictEqual(Game.raidCount(9), 3);
   const ca = cap(g, 'a');
   ca.units = { inf: 0, tank: 0, air: 0 };
   ca.b = ca.b.filter((b) => !TOWER[b.k]);
@@ -230,7 +235,7 @@ const cap = (g, pid) => g.map.tiles[g.player(pid).capital];
   assert.deepStrictEqual(t.u, { inf: 8 });
   assert.ok(t.b.every((b) => b.hp === undefined), '멀쩡한 타워는 hp 를 안 보낸다');
   assert.ok(s.map.tiles.every((x) => x.units === undefined && x.battle === undefined), '내부 필드는 안 나간다');
-  assert.strictEqual(s.players[0].income, 4);
+  assert.strictEqual(s.players[0].income, 4.6);
   const size = JSON.stringify(s).length;
   assert.ok(size < 8000, `전체 상태가 작다 (${size}B)`);
   console.log(`✓ 공개 상태 (전체 ${size}B)`);

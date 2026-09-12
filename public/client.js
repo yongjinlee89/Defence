@@ -124,6 +124,7 @@ socket.on('state', (msg) => {
   lastStateAt = Date.now();
   C = S.game ? S.game.constants : null;
   if (prevPhase !== S.phase) {
+    stopBattleAnim();
     resultDismissed = false;
     selected = null;
     targeting = null;
@@ -573,7 +574,7 @@ function renderTilePane() {
     tag.style.background = t.owner ? colorOf(t.owner) : '#555b6a';
     h.appendChild(tag);
     head.appendChild(h);
-    head.appendChild(el('div', 'dim', `땅 등급 ${'💰'.repeat(t.y)} (공장 하나당 +${C.FACTORY.income * t.y}/초) · 부지 ${(t.b || []).length}/${t.slots}`));
+    head.appendChild(el('div', 'dim', `땅 등급 ${'💰'.repeat(t.y)} · 기본 수입 +${C.LAND_INCOME * t.y}/초, 공장 하나당 +${C.FACTORY.income * t.y}/초 · 부지 ${(t.b || []).length}/${t.slots}`));
     const raid = el('div', '');
     raid.style.color = '#fca5a5';
     live.push(() => {
@@ -765,6 +766,8 @@ function startBattleAnim(scene, idx) {
   anim = { scene, idx, sprites: { A: {}, D: {} }, shots: [], last: performance.now(), raf: 0 };
   const loop = (now) => {
     if (!anim || anim.scene !== scene) return;
+    // 게임이 끝나거나 방이 초기화되면 장면도 멈춘다 (안 그러면 없는 지도를 읽다 죽는다)
+    if (!S || !S.game || !S.game.map || !scene.isConnected) return stopBattleAnim();
     const dt = Math.min(0.05, (now - anim.last) / 1000);
     anim.last = now;
     stepBattleAnim(dt);
@@ -912,7 +915,7 @@ function renderRankPane() {
   }
   table.appendChild(tbody);
   wrap.appendChild(table);
-  wrap.appendChild(el('p', 'dim', `${g.round}라운드 진행 중. 약탈대는 라운드가 오를수록, 땅이 많을수록 커집니다.`));
+  wrap.appendChild(el('p', 'dim', `${g.round}라운드 진행 중. 약탈대는 라운드가 오를수록 세지고, 영토 ${C.RAID_PER_LAND}칸마다 습격 지점이 하나씩 늘어납니다.`));
 }
 
 /* ------------------------------------------------------------------ 도움말 */
@@ -932,6 +935,7 @@ function renderHelpPane() {
     for (const [k, d] of Object.entries(C.UNIT)) add(`<span class="k">${ic(k)} ${d.name}</span> 💰${d.cost} · 체력 ${d.hp} · 공격 ${d.dps}/초<br><span class="dim">${d.desc}</span>`);
     for (const [k, d] of Object.entries(C.TOWER)) add(`<span class="k">${ic(k)} ${d.name}</span> 💰${d.cost} · 체력 ${d.hp} · 공격 ${d.dps}/초<br><span class="dim">${d.desc} 수비할 때만 싸우고, 부지를 한 칸 씁니다.</span>`);
     add(`<span class="k">${ic('factory')} ${C.FACTORY.name}</span> 💰${C.FACTORY.cost} · 초당 ${C.FACTORY.income}×땅 등급×레벨<br><span class="dim">${C.FACTORY.desc}</span>`);
+    add(`<span class="k">🚩 땅</span> 공장이 없어도 초당 ${C.LAND_INCOME}×땅 등급을 법니다. 영토를 넓히는 것만으로 수입이 늘지만, ${C.RAID_PER_LAND}칸마다 습격 지점이 하나씩 늘어납니다.`);
     add(`<span class="k">💸 유지비</span><br><span class="dim">병력은 초당 가격의 ${C.UPKEEP * 100}% 를 유지비로 씁니다 (보병 ${C.UNIT.inf.cost * C.UPKEEP}, 전차 ${C.UNIT.tank.cost * C.UPKEEP}, 항공기 ${C.UNIT.air.cost * C.UPKEEP}). 돈이 바닥나면 병력이 흩어집니다.</span>`);
     add('<span class="k">💡 요령</span><br><span class="dim">· 습격은 12초 전에 예고됩니다. 옆 땅의 병력을 옮겨 막으세요.<br>· 점령하면 상대 공장을 그대로 가져옵니다. 타워는 전투에서 부서집니다.<br>· 타워는 병력보다 싸고 튼튼하지만 움직이지 못하고 부지를 씁니다.<br>· 땅이 많을수록 약탈대도 커집니다. 넓힌 만큼 지키세요.</span>');
     wrap.appendChild(list);

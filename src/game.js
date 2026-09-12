@@ -36,6 +36,7 @@ const TOWER_KINDS = Object.keys(TOWER);
 
 // 경제 건물은 공장 하나. 수입 = INCOME × 땅 등급 × 레벨 (초당)
 const FACTORY = { name: '공장', icon: '🏭', cost: 200, income: 2, desc: '초당 돈을 번다. 좋은 땅일수록 더 번다. 3레벨까지 증설.' };
+const LAND_INCOME = 0.3; // 땅 기본 수입: 초당 0.5 × 땅 등급 (공장 없이도 들어온다 — 영토 자체가 가치)
 const MAX_LEVEL = 3;
 const UPGRADE_MULT = 1.5; // 레벨업 비용 = 건설비 × 1.5^(현재 레벨) — 새로 짓는 것보다 조금 비싸지만 부지를 아낀다
 const LAND_VALUE = 300; // 순자산에 더하는 땅 한 칸의 가치
@@ -54,6 +55,7 @@ const MULT = {
 
 const WAVE_SEC = 75; // 습격 간격
 const WAVE_WARN = 12; // 습격 예고 (초)
+const RAID_PER_LAND = 4; // 영토 4칸마다 습격 지점이 하나씩 늘어난다
 const BATTLE_LIMIT = 150; // 이보다 긴 전투는 공격자 후퇴로 강제 종료 (교착 방지)
 const TOWER_REPAIR = 1; // 전투 중이 아닐 때 타워 초당 수리량
 const DEMOLISH_REFUND = 0.3;
@@ -93,7 +95,7 @@ class Game {
     this.ranking = null;
     this.round = 0;
     this.nextWave = WAVE_SEC;
-    this.raids = {}; // 예고된 습격 {pid: tileIdx}
+    this.raids = {}; // 예고된 습격 {pid: [tileIdx, ...]}
     this.log = [];
     this._logSeq = 0;
     this._rand = rng(this.settings.seed || (Date.now() & 0xffffffff));
@@ -197,10 +199,13 @@ class Game {
     return Math.round(FACTORY.cost * Math.pow(UPGRADE_MULT, b.lv));
   }
 
-  /** 초당 수입 (공장 합계) */
+  /** 초당 수입 = 땅 기본 수입 + 공장 합계 */
   incomeOf(p) {
     let v = 0;
-    for (const t of this.landOf(p.id)) for (const b of t.b) if (b.k === 'factory') v += FACTORY.income * t.yield * b.lv;
+    for (const t of this.landOf(p.id)) {
+      v += LAND_INCOME * t.yield;
+      for (const b of t.b) if (b.k === 'factory') v += FACTORY.income * t.yield * b.lv;
+    }
     return v;
   }
 
@@ -485,11 +490,11 @@ class Game {
   /* ---------------------------------------------------------------- 습격 (라운드) */
 
   /**
-   * 라운드 r 의 약탈대. 처음 3라운드는 배우는 시간이라 약하게.
-   * land 는 그 플레이어의 영토 수 — 땅이 많을수록(=돈이 많을수록) 약탈대도 커진다. 눈덩이 방지.
+   * 라운드 r 의 약탈대 한 무리. 처음 3라운드는 배우는 시간이라 약하게.
+   * land 는 그 플레이어의 영토 수 — 넓을수록 무리도 조금 커진다 (무리 수는 raidCount 가 늘린다).
    */
   static raidForce(r, land = 1) {
-    const scale = 1 + 0.25 * Math.max(0, land - 1);
+    const scale = 1 + 0.15 * Math.max(0, land - 1);
     return {
       inf: Math.round((r <= 3 ? 2 + r : 3 + Math.round(1.5 * r)) * scale),
       tank: Math.floor(Math.max(0, (r - 2) * 0.35) * scale),
@@ -497,31 +502,45 @@ class Game {
     };
   }
 
+  /** 영토 수에 따라 동시에 습격당하는 땅 수: 1~4칸 1곳, 5~8칸 2곳, 9~12칸 3곳 … — 넓힌 만큼 여러 곳을 지켜야 한다 */
+  static raidCount(land) {
+    return 1 + Math.floor(Math.max(0, land - 1) / RAID_PER_LAND);
+  }
+
   tickWaves() {
     if (Object.keys(this.raids).length === 0 && this.elapsed >= this.nextWave - WAVE_WARN) {
+      const names = [];
       for (const p of this.players) {
         if (!p.alive) continue;
         const cands = this.landOf(p.id).filter((t) => !t.battle);
         if (!cands.length) continue;
-        const t = cands[Math.floor(this._rand() * cands.length)];
-        this.raids[p.id] = t.idx;
+        const n = Math.min(cands.length, Game.raidCount(this.landOf(p.id).length));
+        const picked = [];
+        for (let i = 0; i < n; i++) {
+          const j = Math.floor(this._rand() * cands.length);
+          picked.push(cands.splice(j, 1)[0].idx);
+        }
+        this.raids[p.id] = picked;
+        names.push(`${p.name}: ${picked.map((idx) => this.map.tiles[idx].name).join('·')}`);
       }
-      if (Object.keys(this.raids).length) {
-        this.pushLog(`⚠️ 약탈대가 접근 중입니다! ${WAVE_WARN}초 뒤 습격: ${Object.entries(this.raids).map(([pid, idx]) => `${this.map.tiles[idx].name}(${this.player(pid).name})`).join(', ')}`);
-      }
+      if (names.length) this.pushLog(`⚠️ 약탈대가 접근 중입니다! ${WAVE_WARN}초 뒤 습격 — ${names.join(' / ')}`);
     }
     if (this.elapsed < this.nextWave) return;
     this.round++;
     this.nextWave += WAVE_SEC;
     const force = Game.raidForce(this.round);
-    for (const [pid, idx] of Object.entries(this.raids)) {
-      const t = this.map.tiles[idx];
+    for (const [pid, idxs] of Object.entries(this.raids)) {
       const p = this.player(pid);
-      if (!p.alive || t.owner !== pid || t.battle) continue;
-      t.battle = { att: 'npc', from: null, A: Game.raidForce(this.round, this.landOf(pid).length), t: 0 };
+      if (!p.alive) continue;
+      const land = this.landOf(pid).length;
+      for (const idx of idxs) {
+        const t = this.map.tiles[idx];
+        if (t.owner !== pid || t.battle) continue;
+        t.battle = { att: 'npc', from: null, A: Game.raidForce(this.round, land), t: 0 };
+      }
     }
     this.raids = {};
-    this.pushLog(`🔥 ${this.round} 라운드 습격 시작! (보병 ${force.inf}${force.tank ? `, 전차 ${force.tank}` : ''}${force.air ? `, 항공기 ${force.air}` : ''})`);
+    this.pushLog(`🔥 ${this.round} 라운드 습격 시작! (한 무리: 보병 ${force.inf}${force.tank ? `, 전차 ${force.tank}` : ''}${force.air ? `, 항공기 ${force.air}` : ''})`);
   }
 
   /* ---------------------------------------------------------------- 점수 */
@@ -581,7 +600,7 @@ class Game {
       return o;
     });
     const raids = {};
-    for (const [pid, idx] of Object.entries(this.raids)) raids[idx] = pid;
+    for (const [pid, idxs] of Object.entries(this.raids)) for (const idx of idxs) raids[idx] = pid;
     return {
       elapsed: Math.round(this.elapsed),
       duration: this.settings.duration,
@@ -604,7 +623,7 @@ class Game {
         capital: p.capital,
       })),
       // 상수는 게임 중 안 바뀌므로 첫 전송 뒤에는 diff 에서 빠진다
-      constants: { UNIT, TOWER, FACTORY, MULT, MAX_LEVEL, UPGRADE_MULT, WAVE_SEC, WAVE_WARN, DEMOLISH_REFUND, UPKEEP },
+      constants: { UNIT, TOWER, FACTORY, LAND_INCOME, MULT, MAX_LEVEL, UPGRADE_MULT, WAVE_SEC, WAVE_WARN, RAID_PER_LAND, DEMOLISH_REFUND, UPKEEP },
     };
   }
 }
