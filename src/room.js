@@ -12,6 +12,9 @@ const TICK_MS = 250; // 시뮬레이션 간격
 // 몇 틱마다 화면을 갱신할지 (250ms × 4 = 1초).
 // 무료 배포의 월 트래픽 한도 때문에 1초로 둔다 — 사람의 행동에는 즉시 브로드캐스트가 나가므로 체감 반응성은 그대로다.
 const BROADCAST_EVERY = 4;
+// 돈·순자산·시계 같은 "매초 조금씩 바뀌는 값" 은 이 주기(틱)로만 갱신한다 (250ms × 20 = 5초).
+// 사람이 행동하면(건설·훈련 등) 그 즉시 갱신해 잔액이 바로 맞게 보인다.
+const ECON_EVERY = 20;
 const BOT_THINK_MS = 1500;
 
 const DEFAULT_SETTINGS = {
@@ -43,6 +46,7 @@ class Room {
     this._loop = null;
     this._ticks = 0;
     this._botClock = 0;
+    this._econFresh = false; // 다음 state() 에서 돈·시계 스냅샷을 새로 만들지
     // 서버가 diff 브로드캐스트에 쓰는 "마지막으로 보낸 스냅샷" (server.js 가 관리)
     this._snap = null;
     this._seq = 0;
@@ -249,6 +253,7 @@ class Room {
     }
 
     this._ticks++;
+    if (this._ticks % ECON_EVERY === 0) this._econFresh = true;
     if (this._ticks % BROADCAST_EVERY === 0) this.onChange(this);
   }
 
@@ -256,7 +261,10 @@ class Room {
     if (this.phase !== 'playing' || !this.game) return { ok: false, error: '게임 중이 아닙니다.' };
     if (!this.game.player(playerId)) return { ok: false, error: '게임 참가자가 아닙니다.' };
     const result = fn(this.game);
-    if (result && result.ok) this.touch();
+    if (result && result.ok) {
+      this.touch();
+      this._econFresh = true; // 돈을 썼으니 잔액을 바로 보여 준다
+    }
     return result;
   }
 
@@ -287,7 +295,8 @@ class Room {
       chat: Object.fromEntries(this.chat.slice(-60).map((e) => [e.id, e])),
     };
     if (this.game) {
-      base.game = this.game.publicState();
+      base.game = this.game.publicState({ econ: this._econFresh });
+      this._econFresh = false;
       base.log = Object.fromEntries(this.game.log.slice(-50).map((e) => [e.id, e]));
     }
     return base;

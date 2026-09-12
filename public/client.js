@@ -37,6 +37,8 @@ let targeting = null; // { mode: 'move'|'attack', from, units: 'all'|'half' }
 let sendMode = 'all'; // 출정 시 보낼 양
 let activeTab = 'tile';
 let lastStateAt = Date.now();
+let econAt = Date.now(); // 서버가 돈·시계 스냅샷을 마지막으로 새로 보낸 시각 (그 사이는 여기서 이어 계산)
+let lastElapsed = -1;
 let resultDismissed = false;
 
 const UNIT_KINDS = ['inf', 'tank', 'air'];
@@ -123,6 +125,11 @@ socket.on('state', (msg) => {
   } else return;
   lastStateAt = Date.now();
   C = S.game ? S.game.constants : null;
+  // 시계(elapsed)는 5초에 한 번만 온다 — 바뀐 순간을 기억해 두고 그 뒤로는 브라우저 시계로 이어 깎는다
+  if (S.game && S.game.elapsed !== lastElapsed) {
+    lastElapsed = S.game.elapsed;
+    econAt = lastStateAt;
+  }
   if (prevPhase !== S.phase) {
     stopBattleAnim();
     resultDismissed = false;
@@ -211,11 +218,18 @@ function unitsText(u) {
 function defOf(k) {
   return k === 'factory' ? C.FACTORY : C.TOWER[k];
 }
-/** 마지막 상태 수신 뒤 흐른 시간을 더한 "지금" 경과 시간 */
+/** 마지막 시계 스냅샷 뒤 흐른 시간을 더한 "지금" 경과 시간 */
 function nowElapsed() {
   if (!S || !S.game) return 0;
   if (S.game.ended) return S.game.elapsed;
-  return S.game.elapsed + (Date.now() - lastStateAt) / 1000;
+  return S.game.elapsed + (Date.now() - econAt) / 1000;
+}
+/** 내 돈 — 서버 스냅샷에 그 뒤 벌어들인(또는 나간) 몫을 더한 추정치. 버튼 활성화에도 쓴다 (서버가 최종 판정) */
+function myCash() {
+  const p = me();
+  if (!p) return 0;
+  if (S.game.ended) return p.cash;
+  return Math.max(0, p.cash + ((p.income || 0) - (p.upkeep || 0)) * ((Date.now() - econAt) / 1000));
 }
 
 /* ================================================================== 렌더링 */
@@ -318,7 +332,7 @@ function renderHud() {
   renderWave();
   $('#hud-income').innerHTML = p ? `수입 <b>+${fmt1(p.income)}/초</b> <span class="dim">유지비 −${fmt1(p.upkeep)}/초</span>` : '';
   $('#hud-land').textContent = p ? `🚩 ${p.land}칸` : '';
-  $('#hud-cash').textContent = p ? `💰 ${fmt(p.cash)}` : '관전';
+  $('#hud-cash').textContent = p ? `💰 ${fmt(myCash())}` : '관전';
   $('#time-fill').style.width = `${Math.max(0, 100 - (nowElapsed() / g.duration) * 100)}%`;
 }
 
@@ -336,7 +350,10 @@ setInterval(() => {
   if (!S || S.phase !== 'playing' || !S.game) return;
   $('#hud-timer').textContent = '⏱ ' + mmss(S.game.duration - nowElapsed());
   renderWave();
-}, 250);
+  if (me()) $('#hud-cash').textContent = `💰 ${fmt(myCash())}`;
+  // 돈이 쌓여 버튼이 살아나야 하는 경우 — 영토 패널의 live 갱신만 돌린다
+  if (activeTab === 'tile' && panes.tile) for (const fn of panes.tile.live) fn();
+}, 500);
 
 /* ------------------------------------------------------------------ 지도 */
 
@@ -583,7 +600,7 @@ function renderTilePane() {
       const up = el('button', 'small', `⛏️ 땅 개발 ${'💰'.repeat(t.y + 1)} — ${fmt(cost)}`);
       up.title = '등급이 오르면 기본 수입과 이 땅의 모든 공장 수입이 오르고 부지가 한 칸 늘어납니다.';
       up.addEventListener('click', () => emit('upgradeLand', { idx: selected }));
-      live.push(() => (up.disabled = !me() || me().cash < cost || !!tiles()[selected].bt));
+      live.push(() => (up.disabled = !me() || myCash() < cost || !!tiles()[selected].bt));
       row.appendChild(up);
       row.appendChild(el('span', 'dim', `수입 +${fmt1(gain)}/초, 부지 +1`));
       head.appendChild(row);
@@ -619,6 +636,7 @@ function renderTilePane() {
       sides.appendChild(aBox);
       sides.appendChild(dBox);
       bc.appendChild(sides);
+      const battleSeenAt = Date.now();
       startBattleAnim(scene, selected);
       live.push(() => {
         const tt = tiles()[selected];
@@ -633,7 +651,7 @@ function renderTilePane() {
         dFill.style.width = `${(dp / tot) * 100}%`;
         aBox.innerHTML = `<b style="color:#fca5a5">공격 ${nameOf(tt.bt.att)}</b><br>${unitsText(A)}`;
         dBox.innerHTML = `<b style="color:#93c5fd">수비 ${tt.owner ? nameOf(tt.owner) : '중립'}</b><br>${unitsText(D)}${towers.length ? '<br>' + towers.map((b) => ICONS.svg(b.k, 16)).join('') : ''}`;
-        elapsed.textContent = `${tt.bt.t}초`;
+        elapsed.textContent = `${Math.round((Date.now() - battleSeenAt) / 1000)}초`;
       });
       if (t.bt.att === ME) {
         const rt = el('button', 'danger', '🏳️ 후퇴 (생존 병력을 출발지로)');
@@ -670,7 +688,7 @@ function renderTilePane() {
           const cost = Math.round(C.FACTORY.cost * Math.pow(C.UPGRADE_MULT, b.lv || 1));
           const up = el('button', 'small', `증설 💰${fmt(cost)}`);
           up.addEventListener('click', () => emit('upgrade', { idx: selected, slot: i }));
-          live.push(() => (up.disabled = !me() || me().cash < cost));
+          live.push(() => (up.disabled = !me() || myCash() < cost));
           row.appendChild(up);
         }
         const dm = el('button', 'small', '철거');
@@ -694,7 +712,7 @@ function renderTilePane() {
         btn.appendChild(title);
         btn.appendChild(el('span', 'cost', k === 'factory' ? `+${def.income * t.y}/초` : def.desc));
         btn.addEventListener('click', () => emit('build', { idx: selected, kind: k }));
-        live.push(() => (btn.disabled = !me() || me().cash < def.cost));
+        live.push(() => (btn.disabled = !me() || myCash() < def.cost));
         grid.appendChild(btn);
       }
       bc.appendChild(grid);
@@ -719,7 +737,7 @@ function renderTilePane() {
         for (const q of [1, 5, 10]) {
           const b = el('button', 'small', `+${q}`);
           b.addEventListener('click', () => emit('train', { idx: selected, unit: k, qty: q }));
-          live.push(() => (b.disabled = !me() || me().cash < def.cost * q));
+          live.push(() => (b.disabled = !me() || myCash() < def.cost * q));
           row.appendChild(b);
         }
         row.appendChild(el('span', 'cost', `💰${def.cost} · ${def.desc}`));

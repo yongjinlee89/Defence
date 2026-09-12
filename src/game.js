@@ -594,11 +594,35 @@ class Game {
 
   /* ---------------------------------------------------------------- 공개 상태 */
 
-  publicState() {
+  /**
+   * 트래픽 절감 — 돈·순자산·시계처럼 "매초 조금씩" 바뀌는 값은 매초 보내면 패치의 1/3 을 차지한다.
+   * 이 값들은 econ 스냅샷에 담아 두고, refresh 가 true 일 때만(5초마다, 그리고 사람이 행동한 직후) 새로 만든다.
+   * 클라이언트는 그 사이를 수입−유지비로 이어 계산해 보여 준다 (시계도 마찬가지).
+   */
+  econSnapshot(refresh) {
+    if (!this._econ || refresh) {
+      const r1 = (n) => Math.round(n * 10) / 10;
+      this._econ = {
+        elapsed: Math.round(this.elapsed),
+        players: this.players.map((p) => ({
+          cash: Math.round(p.cash),
+          income: r1(this.incomeOf(p)),
+          upkeep: r1(this.upkeepOf(p)),
+          // 순자산은 순위표에만 쓰인다 — 100 단위면 충분
+          nw: Math.round(this.netWorth(p) / 100) * 100,
+        })),
+      };
+    }
+    return this._econ;
+  }
+
+  publicState(opts = {}) {
     const r1 = (n) => Math.round(n * 10) / 10;
+    const econ = this.econSnapshot(opts.econ || this.ended);
     const units = (u) => {
       const o = {};
-      for (const k of UNIT_KINDS) if (u[k] >= 0.05) o[k] = r1(u[k]);
+      // 0.5 단위 — 지도는 정수로, 패널은 소수 한 자리로 보여 주므로 이 정도면 충분하고 매초 나가는 잔 변동이 절반으로 준다
+      for (const k of UNIT_KINDS) if (u[k] >= 0.05) o[k] = Math.max(0.5, Math.round(u[k] * 2) / 2);
       return o;
     };
     const tiles = this.map.tiles.map((t) => {
@@ -614,13 +638,14 @@ class Game {
       }
       const u = units(t.units);
       if (Object.keys(u).length) o.u = u;
-      if (t.battle) o.bt = { att: t.battle.att, A: units(t.battle.A), t: Math.round(t.battle.t) };
+      // 경과 시간은 안 보낸다 — 매초 바뀌는 값이라, 클라이언트가 전투를 처음 본 시각부터 센다
+      if (t.battle) o.bt = { att: t.battle.att, A: units(t.battle.A) };
       return o;
     });
     const raids = {};
     for (const [pid, idxs] of Object.entries(this.raids)) for (const idx of idxs) raids[idx] = pid;
     return {
-      elapsed: Math.round(this.elapsed),
+      elapsed: econ.elapsed,
       duration: this.settings.duration,
       ended: this.ended,
       round: this.round,
@@ -628,16 +653,16 @@ class Game {
       raids,
       ranking: this.ranking,
       map: { w: this.map.w, h: this.map.h, tiles },
-      players: this.players.map((p) => ({
+      players: this.players.map((p, i) => ({
         id: p.id,
         name: p.name,
         color: p.color,
-        cash: Math.round(p.cash),
-        income: r1(this.incomeOf(p)),
-        upkeep: r1(this.upkeepOf(p)),
+        cash: econ.players[i].cash,
+        income: econ.players[i].income,
+        upkeep: econ.players[i].upkeep,
         alive: p.alive,
         land: this.landOf(p.id).length,
-        nw: Math.round(this.netWorth(p) / 10) * 10,
+        nw: econ.players[i].nw,
         capital: p.capital,
       })),
       // 상수는 게임 중 안 바뀌므로 첫 전송 뒤에는 diff 에서 빠진다
