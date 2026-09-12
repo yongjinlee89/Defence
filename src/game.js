@@ -35,8 +35,8 @@ const TOWER = {
 const TOWER_KINDS = Object.keys(TOWER);
 
 // 경제 건물은 공장 하나. 수입 = INCOME × 땅 등급 × 레벨 (초당)
-const FACTORY = { name: '공장', icon: '🏭', cost: 200, income: 2, desc: '초당 돈을 번다. 좋은 땅일수록 더 번다. 3레벨까지 증설.' };
-const LAND_INCOME = 0.3; // 땅 기본 수입: 초당 0.5 × 땅 등급 (공장 없이도 들어온다 — 영토 자체가 가치)
+const FACTORY = { name: '공장', icon: '🏭', cost: 200, income: 1, desc: '초당 돈을 번다. 좋은 땅일수록 더 번다. 3레벨까지 증설.' };
+const LAND_INCOME = 0.6; // 땅 기본 수입: 초당 0.5 × 땅 등급 (공장 없이도 들어온다 — 영토 자체가 가치)
 const MAX_YIELD = 3;
 const LAND_UPGRADE = { 1: 400, 2: 700 }; // 땅 등급 올리기 비용 (현재 등급 → +1). 등급이 오르면 기본 수입·공장 수입이 오르고 부지가 한 칸 는다
 const MAX_LEVEL = 3;
@@ -57,7 +57,7 @@ const MULT = {
 
 const WAVE_SEC = 75; // 습격 간격
 const WAVE_WARN = 12; // 습격 예고 (초)
-const RAID_PER_LAND = 4; // 영토 4칸마다 습격 지점이 하나씩 늘어난다
+const RAID_PER_LAND = 3; // 영토 3칸마다 습격 지점이 하나씩 늘어난다
 const BATTLE_LIMIT = 150; // 이보다 긴 전투는 공격자 후퇴로 강제 종료 (교착 방지)
 const TOWER_REPAIR = 1; // 전투 중이 아닐 때 타워 초당 수리량
 const DEMOLISH_REFUND = 0.3;
@@ -514,13 +514,13 @@ class Game {
   static raidForce(r, land = 1) {
     const scale = 1 + 0.15 * Math.max(0, land - 1);
     return {
-      inf: Math.round((r <= 3 ? 2 + r : 3 + Math.round(1.5 * r)) * scale),
-      tank: Math.floor(Math.max(0, (r - 2) * 0.35) * scale),
-      air: Math.floor(Math.max(0, (r - 4) * 0.35) * scale),
+      inf: Math.round((r <= 3 ? 2 + r : 3 + Math.round(1.2 * r)) * scale),
+      tank: Math.floor(Math.max(0, (r - 3) * 0.3) * scale),
+      air: Math.floor(Math.max(0, (r - 5) * 0.3) * scale),
     };
   }
 
-  /** 영토 수에 따라 동시에 습격당하는 땅 수: 1~4칸 1곳, 5~8칸 2곳, 9~12칸 3곳 … — 넓힌 만큼 여러 곳을 지켜야 한다 */
+  /** 영토 수에 따라 동시에 습격당하는 땅 수: 1~3칸 1곳, 4~6칸 2곳, 7~9칸 3곳 … — 넓힌 만큼 여러 곳을 지켜야 한다 */
   static raidCount(land) {
     return 1 + Math.floor(Math.max(0, land - 1) / RAID_PER_LAND);
   }
