@@ -591,7 +591,7 @@ function renderTilePane() {
     tag.style.background = t.owner ? colorOf(t.owner) : '#555b6a';
     h.appendChild(tag);
     head.appendChild(h);
-    head.appendChild(el('div', 'dim', `땅 등급 ${'💰'.repeat(t.y)} · 기본 수입 +${C.LAND_INCOME * t.y}/초, 공장 하나당 +${C.FACTORY.income * t.y}/초 · 부지 ${(t.b || []).length}/${t.slots}`));
+    head.appendChild(el('div', 'dim', `땅 등급 ${'💰'.repeat(t.y)} · 기본 수입 +${fmt1(C.LAND_INCOME * t.y)}/초, 공장 하나당 +${C.FACTORY.income * t.y}/초 · 부지 ${(t.b || []).length}/${t.slots}`));
     if (mine && !g.ended && t.y < C.MAX_YIELD) {
       const cost = C.LAND_UPGRADE[t.y];
       const factories = (t.b || []).filter((b) => b.k === 'factory').reduce((s, b) => s + (b.lv || 1), 0);
@@ -665,6 +665,9 @@ function renderTilePane() {
       stopBattleAnim();
     }
 
+    // 카드 순서: 출정(가장 자주 씀) → 병력 → 부지. 만드는 순서와 달라서 끝에서 한꺼번에 붙인다.
+    const order = [];
+
     // 부지
     const bc = el('div', 'card');
     bc.appendChild(el('h3', '', '🏗️ 부지'));
@@ -717,7 +720,7 @@ function renderTilePane() {
       }
       bc.appendChild(grid);
     }
-    wrap.appendChild(bc);
+    order[2] = bc;
 
     // 병력
     const uc = el('div', 'card');
@@ -748,7 +751,7 @@ function renderTilePane() {
       }
       uc.appendChild(row);
     }
-    wrap.appendChild(uc);
+    order[1] = uc;
 
     // 출정
     if (mine && !g.ended) {
@@ -781,10 +784,11 @@ function renderTilePane() {
       row.appendChild(at);
       dc.appendChild(row);
       dc.appendChild(el('div', 'dim', '누른 뒤 지도에서 인접한 영토를 클릭하세요. 이동은 내 땅, 공격은 남의 땅.'));
-      wrap.appendChild(dc);
+      order[0] = dc;
     } else if (p && p.alive && !g.ended) {
-      wrap.appendChild(el('p', 'dim', '이 영토를 치려면 인접한 내 영토를 선택해 "공격" 을 누르세요.'));
+      order[0] = el('p', 'dim', '이 영토를 치려면 인접한 내 영토를 선택해 "공격" 을 누르세요.');
     }
+    for (const node of order) if (node) wrap.appendChild(node);
   });
 }
 
