@@ -12,7 +12,7 @@ const seed = Number(process.argv[3]) || 42;
 
 console.log('== 봇 4명 자동 대전 (' + duration + '초, 시드 ' + seed + ')');
 const ids = ['b1', 'b2', 'b3', 'b4'];
-const g = new Game(ids.map((id) => ({ id, name: id })), { startCash: 800, duration, seed });
+const g = new Game(ids.map((id) => ({ id, name: id })), { startCash: 1200, duration, seed });
 for (let sec = 0; sec < duration && !g.ended; sec += 0.25) {
   g.tick(0.25);
   if (Math.round(sec * 4) % 6 === 0) for (const id of ids) think(g, id);

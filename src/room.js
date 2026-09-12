@@ -18,12 +18,12 @@ const ECON_EVERY = 20;
 const BOT_THINK_MS = 1500;
 
 const DEFAULT_SETTINGS = {
-  startCash: 800,
+  startCash: 1200,
   duration: 600,
 };
 
 const SETTING_CHOICES = {
-  startCash: [500, 800, 1200, 2000],
+  startCash: [800, 1200, 2000, 3000],
   duration: [600, 900, 1200],
 };
 

@@ -7,7 +7,7 @@ const { Game } = require('../src/game');
 const { think } = require('../src/bot');
 
 const ids = ['b1', 'b2', 'b3', 'b4'];
-const g = new Game(ids.map((id) => ({ id, name: id })), { startCash: 800, duration: 900, seed: 42 });
+const g = new Game(ids.map((id) => ({ id, name: id })), { startCash: 1200, duration: 900, seed: 42 });
 let actions = 0;
 for (let sec = 0; sec < 900 && !g.ended; sec += 0.25) {
   g.tick(0.25);
