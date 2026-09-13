@@ -433,31 +433,33 @@ function drawMap() {
       ctx.stroke();
     }
     const fs = Math.max(10, Math.floor(cell / 9));
+    // 작은 칸(6인 판·휴대폰, 최소 글꼴)은 여백을 줄여 이름·건물·병력 두 줄이 겹치지 않고 들어가게
+    const tight = fs <= 10;
+    const pad = tight ? 3 : 6;
     ctx.textBaseline = 'top';
     ctx.textAlign = 'left';
     ctx.fillStyle = '#e8eaf0';
     ctx.font = `bold ${fs}px sans-serif`;
-    ctx.fillText((t.cap ? '★ ' : '') + t.n, px + 6, py + 5);
+    ctx.fillText((t.cap ? '★ ' : '') + t.n, px + pad, py + pad - 1);
     // 땅 등급 (💰 개수) + 습격 예고
     ctx.textAlign = 'right';
     ctx.font = `${fs}px sans-serif`;
-    ctx.fillText((g.raids && g.raids[idx] ? '⚠️ ' : '') + '💰'.repeat(t.y), px + size - 6, py + 5);
+    ctx.fillText((g.raids && g.raids[idx] ? '⚠️ ' : '') + '💰'.repeat(t.y), px + size - pad, py + pad - 1);
     // 건물 아이콘 — 공장은 연회색, 타워는 노란빛으로 구분
     const bi = Math.floor(fs * 1.3);
-    (t.b || []).forEach((b, i) => ICONS.draw(ctx, b.k, px + 6 + i * (bi + 2), py + 6 + fs * 1.4, bi, b.k === 'factory' ? '#c9ced9' : '#f2d27a'));
+    const by = py + pad + fs * (tight ? 1.2 : 1.4);
+    (t.b || []).forEach((b, i) => ICONS.draw(ctx, b.k, px + pad + i * (bi + 2), by, bi, b.k === 'factory' ? '#c9ced9' : '#f2d27a'));
     ctx.fillStyle = '#9aa1b0';
     ctx.font = `${Math.floor(fs * 0.9)}px sans-serif`;
     ctx.textAlign = 'right';
-    ctx.fillText(`빈 ${t.slots - (t.b || []).length}`, px + size - 6, py + 6 + fs * 1.5);
-    // 병력
-    ctx.textAlign = 'left';
-    ctx.fillStyle = '#e8eaf0';
-    ctx.font = `${fs}px sans-serif`;
+    ctx.fillText(`빈 ${t.slots - (t.b || []).length}`, px + size - pad, by + 1);
+    // 병력 — 아래에서 위로 줄을 쌓고, 전투 중이면 공격군을 그 위에 오른쪽 맞춤으로
     const u = unitsOf(t);
-    drawUnitRow(px + 6, py + size - fs - 6, fs, u, '#e8eaf0', false, size - 12);
+    const yD = py + size - fs - pad + 1;
+    const rowsD = drawUnitRow(px + pad, yD, fs, u, '#e8eaf0', false, size - pad * 2);
     if (t.bt) {
       const a = t.bt.A || {};
-      drawUnitRow(px + size - 6, py + size - fs * 2.4 - 6, fs, a, '#fca5a5', true, size - 12);
+      drawUnitRow(px + size - pad, yD - Math.max(1, rowsD) * (fs + 2) - (tight ? 2 : Math.round(fs * 0.3)), fs, a, '#fca5a5', true, size - pad * 2, true);
     }
   });
   // 행군 중인 부대 — 지금 있는 칸에 부대 표시, 목표 칸까지 점선 화살표
@@ -490,24 +492,53 @@ function drawMap() {
   }
 }
 
-/** 지도 칸 안에 "아이콘+수" 를 한 줄로 그린다. right 면 오른쪽 끝에 맞춘다 */
-function drawUnitRow(x, y, fs, u, color, right, maxW) {
+/**
+ * 지도 칸 안에 "아이콘+수" 를 그린다. y 는 마지막 줄의 위치, right 면 오른쪽 끝에 맞춘다.
+ * 한 줄에 다 안 들어가면 위로 줄을 나눈다 — 예전엔 넘치는 병종을 그냥 버려서 6인 판(작은 칸)에서
+ * 세 번째 병종(항공기)이 안 보였다. 그린 줄 수를 돌려준다 (공격군 줄을 그 위에 얹기 위해).
+ */
+function drawUnitRow(x, y, fs, u, color, right, maxW, back) {
   const items = UNIT_KINDS.filter((k) => (u[k] || 0) >= 0.5).map((k) => ({ k, n: String(Math.floor(u[k])) }));
-  if (!items.length) return;
+  if (!items.length) return 0;
   ctx.font = `bold ${fs}px sans-serif`;
   ctx.textBaseline = 'top';
   ctx.textAlign = 'left';
   ctx.fillStyle = color;
-  const ic = Math.floor(fs * 1.2);
-  const widths = items.map((it) => ic + 2 + ctx.measureText(it.n).width + 6);
-  const total = widths.reduce((s, w) => s + w, 0);
-  let cx = right ? x - Math.min(total, maxW) : x;
-  items.forEach((it, i) => {
-    if (cx + widths[i] > (right ? x : x + maxW) + 1) return;
-    ICONS.draw(ctx, it.k, cx, y - 1, ic, color);
-    ctx.fillText(it.n, cx + ic + 2, y);
-    cx += widths[i];
+  // 작은 칸(최소 글꼴)에서는 아이콘·간격을 바짝 붙여 한 줄에 둘이 들어가게
+  const tight = fs <= 10;
+  const ic = tight ? fs - 1 : Math.round(fs * 1.15);
+  const gapIn = tight ? 1 : 2;
+  const gapOut = tight ? 2 : 5;
+  const widths = items.map((it) => ic + gapIn + ctx.measureText(it.n).width + gapOut);
+  const rows = [[]];
+  let w = 0;
+  widths.forEach((iw, i) => {
+    if (w + iw - gapOut > maxW + 1 && rows[rows.length - 1].length) {
+      rows.push([]);
+      w = 0;
+    }
+    rows[rows.length - 1].push(i);
+    w += iw;
   });
+  const rh = fs + 2;
+  rows.forEach((row, r) => {
+    const ry = y - (rows.length - 1 - r) * rh; // 첫 줄이 위, 마지막 줄이 y
+    const total = row.reduce((s, i) => s + widths[i], 0) - gapOut;
+    let cx = right ? x - total : x;
+    if (back) {
+      // 어두운 바탕 — 공격군 줄은 작은 칸에서 이름·건물 줄 위에 얹히기도 해서, 겹쳐도 읽히게
+      ctx.fillStyle = 'rgba(14, 16, 21, 0.72)';
+      roundRect(ctx, cx - 3, ry - 2, total + 6, fs + 3, 4);
+      ctx.fill();
+      ctx.fillStyle = color;
+    }
+    for (const i of row) {
+      ICONS.draw(ctx, items[i].k, cx, ry - 1, ic, color);
+      ctx.fillText(items[i].n, cx + ic + gapIn, ry);
+      cx += widths[i];
+    }
+  });
+  return rows.length;
 }
 
 /** 이동: 내 땅만 밟고 갈 수 있는 내 땅 전부. 공격: 남의 땅 전부 (길목은 서버가 최단 경로로 정한다) */
