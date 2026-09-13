@@ -487,7 +487,7 @@ class Game {
       // 남의 전투가 벌어지고 있으면 그 자리에서 기다린다
       return;
     }
-    t.battle = { att: army.owner, from: army.path[army.i], A: army.units, army: army.id };
+    t.battle = { att: army.owner, from: army.path[army.i], A: army.units, army: army.id, t: 0 };
     army.battleAt = next;
     const p = this.player(army.owner);
     const owner = t.owner ? this.player(t.owner) : null;
@@ -683,7 +683,10 @@ class Game {
     if (this.landOf(p.id).length === 0) {
       p.alive = false;
       p.diedAt = this.elapsed;
-      this.pushLog(`☠️ ${p.name} 이(가) 모든 영토를 잃고 탈락했습니다.`);
+      // 돌아갈 땅이 없는 부대와 진행 중이던 공격은 흩어진다 — 안 그러면 탈락한 뒤에도 땅을 뺏는 유령 군대가 남는다
+      for (const t of this.map.tiles) if (t.battle && t.battle.att === p.id) t.battle = null;
+      this.armies = this.armies.filter((a) => a.owner !== p.id);
+      this.pushLog(`☠️ ${p.name} 이(가) 모든 영토를 잃고 탈락했습니다. 남은 부대는 흩어졌습니다.`);
     }
   }
 

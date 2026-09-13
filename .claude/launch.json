@@ -5,7 +5,8 @@
       "name": "defense",
       "runtimeExecutable": "node",
       "runtimeArgs": ["server.js"],
-      "port": 7863
+      "port": 7863,
+      "autoPort": true
     }
   ]
 }

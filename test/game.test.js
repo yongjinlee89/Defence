@@ -327,6 +327,45 @@ const cap = (g, pid) => g.map.tiles[g.player(pid).capital];
   console.log('✓ 증원/후퇴');
 }
 
+/* ---------------- 전투 시간 제한 / 탈락 시 부대 해산 ---------------- */
+{
+  // 사람 전투도 시간을 재고, 너무 길어지면 공격군이 후퇴한다 (t 초기화가 빠져 NaN 이던 회귀 방지)
+  const g = newGame();
+  const ca = cap(g, 'a');
+  const t = g.neighbors(ca).find((x) => !x.owner);
+  ca.units.inf = 30;
+  g.attack('a', ca.idx, t.idx, { inf: 10 });
+  tick(g, 1);
+  assert.ok(Number.isFinite(t.battle.t) && t.battle.t > 0.9, '전투 경과 시간이 잰다');
+  t.battle.t = 1e6;
+  tick(g, 1);
+  assert.strictEqual(t.battle, null, '제한 시간을 넘기면 전투가 끝난다');
+  assert.ok(ca.units.inf > 20, '공격군이 출발지로 돌아온다');
+  assert.ok(g.log.some((l) => l.text.includes('너무 길어져')));
+
+  // 3인: 모든 땅을 잃고 탈락하면 밖에 나가 있던 부대와 진행 중이던 공격도 흩어진다
+  const g3 = new Game([...P, { id: 'c', name: '병' }], { startCash: 800, duration: 600, seed: 7, raids: 0 });
+  const a3 = cap(g3, 'a');
+  const far = g3.map.tiles.find((x) => !x.owner && Math.abs(x.x - a3.x) + Math.abs(x.y - a3.y) === 3);
+  a3.units.inf = 200;
+  assert.ok(g3.attack('a', a3.idx, far.idx, { inf: 150 }).ok);
+  assert.strictEqual(g3.armies.length, 1);
+  a3.units = { inf: 0, tank: 0, air: 0 };
+  a3.b = [];
+  const nb = g3.neighbors(a3).find((x) => x.owner !== 'a');
+  nb.owner = 'b';
+  nb.units = { inf: 50, tank: 0, air: 0 };
+  nb.b = [];
+  assert.ok(g3.attack('b', nb.idx, a3.idx, { inf: 40 }).ok);
+  tick(g3, 1);
+  assert.ok(!g3.player('a').alive, '수도를 잃고 탈락');
+  assert.strictEqual(g3.armies.filter((x) => x.owner === 'a').length, 0, '탈락자의 부대는 사라진다');
+  assert.ok(g3.map.tiles.every((x) => !x.battle || x.battle.att !== 'a'), '탈락자의 공격 전투도 끝난다');
+  tick(g3, 60);
+  assert.strictEqual(g3.landOf('a').length, 0, '탈락한 뒤에 땅을 얻지 않는다');
+  console.log('✓ 전투 시간 제한 / 탈락 시 부대 해산');
+}
+
 /* ---------------- 습격 라운드 ---------------- */
 {
   const off = newGame({ raids: 0 });
