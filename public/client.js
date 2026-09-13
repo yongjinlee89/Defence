@@ -572,22 +572,9 @@ window.addEventListener('resize', () => {
   if (S && S.phase !== 'lobby' && S.game) drawMap();
 });
 
+// 지도 위 안내 팝업은 첫 줄 타일을 가려서 뺐다 — 대상 표시는 지도의 점선 테두리, 안내와 취소는 출정 카드 안에서
 function renderTargetHint() {
-  const node = $('#target-hint');
-  if (!targeting) {
-    node.classList.add('hidden');
-    return;
-  }
-  node.classList.remove('hidden');
-  node.classList.toggle('attack', targeting.mode === 'attack');
-  node.innerHTML = '';
-  node.appendChild(el('span', '', (targeting.mode === 'attack' ? '⚔️ 공격할 영토를 클릭하세요 — 길목의 남의 땅을 차례로 뚫고 갑니다' : '➡️ 이동할 내 영토를 클릭하세요') + ' (' + (targeting.units === 'all' ? '전부' : '절반') + ')'));
-  const cancel = el('button', 'small', '취소');
-  cancel.addEventListener('click', () => {
-    targeting = null;
-    renderGame();
-  });
-  node.appendChild(cancel);
+  $('#target-hint').classList.add('hidden');
 }
 
 /* ------------------------------------------------------------------ 탭 */
@@ -847,22 +834,34 @@ function renderTilePane() {
       modeAll.addEventListener('click', () => setMode('all'));
       modeHalf.addEventListener('click', () => setMode('half'));
       const mv = el('button', 'primary', '➡️ 이동');
-      mv.addEventListener('click', () => {
-        targeting = { mode: 'move', from: selected, units: sendMode };
-        renderGame();
-      });
       const at = el('button', 'danger', '⚔️ 공격');
-      at.addEventListener('click', () => {
-        targeting = { mode: 'attack', from: selected, units: sendMode };
+      const toggle = (mode) => {
+        targeting = targeting && targeting.mode === mode && targeting.from === selected ? null : { mode, from: selected, units: sendMode };
         renderGame();
-      });
+      };
+      mv.addEventListener('click', () => toggle('move'));
+      at.addEventListener('click', () => toggle('attack'));
       row.appendChild(modeAll);
       row.appendChild(modeHalf);
       row.appendChild(el('span', 'grow'));
       row.appendChild(mv);
       row.appendChild(at);
       dc.appendChild(row);
-      dc.appendChild(el('div', 'dim', `누른 뒤 지도에서 목표 영토를 클릭하세요. 멀어도 됩니다 — 내 땅은 칸당 ${C.MARCH_SEC}초에 지나가고, 길목의 남의 땅은 차례로 싸워 점령하며 나아갑니다. 점령하려면 보병이 함께 가야 합니다.`));
+      const hint = el('div', 'dim');
+      dc.appendChild(hint);
+      // 대기 중이면 누른 버튼이 "취소" 가 되고 안내가 바뀐다 (지도 위 팝업 대신)
+      live.push(() => {
+        const on = targeting && targeting.from === selected;
+        mv.textContent = on && targeting.mode === 'move' ? '✕ 취소' : '➡️ 이동';
+        at.textContent = on && targeting.mode === 'attack' ? '✕ 취소' : '⚔️ 공격';
+        mv.classList.toggle('on', !!on && targeting.mode === 'move');
+        at.classList.toggle('on', !!on && targeting.mode === 'attack');
+        hint.textContent = on
+          ? targeting.mode === 'attack'
+            ? '지도에서 목표 영토(빨간 점선)를 클릭하세요. 길목의 남의 땅을 차례로 뚫고 갑니다.'
+            : '지도에서 갈 내 영토(초록 점선)를 클릭하세요.'
+          : `멀어도 됩니다 — 내 땅은 칸당 ${C.MARCH_SEC}초에 지나가고, 길목의 남의 땅은 차례로 싸워 점령합니다. 점령하려면 보병이 함께 가야 합니다.`;
+      });
       order[0] = dc;
     } else if (p && p.alive && !g.ended) {
       order[0] = el('p', 'dim', '이 영토를 치려면 내 영토를 선택해 "공격" 을 누른 뒤 여기를 클릭하세요.');
